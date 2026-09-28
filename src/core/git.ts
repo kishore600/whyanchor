@@ -34,14 +34,29 @@ export async function getCurrentCommit(cwd: string): Promise<string | null> {
   return out || null;
 }
 
-/** Number of commits that touched `filePath` between `sinceCommit` (exclusive) and HEAD (inclusive). */
+/** Whether `sha` names a commit in this repository's object database. */
+export async function commitExists(cwd: string, sha: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Number of commits that touched `filePath` between `sinceCommit` (exclusive) and HEAD
+ * (inclusive) — or null when `sinceCommit` is not in this clone's history (rewritten by a rebase
+ * or squash, or cut off by a shallow clone), where the count is unknowable rather than zero.
+ * `rev-list --count` prints a single number, so a long history can't overflow execFile's buffer.
+ */
 export async function countCommitsSince(
   cwd: string,
   sinceCommit: string | null,
   filePath: string
-): Promise<number> {
+): Promise<number | null> {
+  if (sinceCommit && !(await commitExists(cwd, sinceCommit))) return null;
   const range = sinceCommit ? `${sinceCommit}..HEAD` : "HEAD";
-  const out = await git(cwd, ["log", "--oneline", range, "--", filePath]);
-  if (!out) return 0;
-  return out.split("\n").filter(Boolean).length;
+  const count = Number.parseInt(await git(cwd, ["rev-list", "--count", range, "--", filePath]), 10);
+  return Number.isNaN(count) ? 0 : count;
 }

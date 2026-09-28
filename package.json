@@ -36,7 +36,7 @@
     "graph-app/.next"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20.9.0"
   },
   "publishConfig": {
     "access": "public"

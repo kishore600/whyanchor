@@ -32,6 +32,27 @@ const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false 
 
 const POLL_INTERVAL_MS = 8000;
 
+/**
+ * The force simulation replaces each link's `source`/`target` id with the node object itself, in
+ * place, once the graph has rendered — so any later pass over the same edges must accept both.
+ */
+function endpointId(endpoint: string | { id?: string | number }): string {
+  return typeof endpoint === "object" && endpoint !== null ? String(endpoint.id) : endpoint;
+}
+
+const LAYOUT_KEYS = ["x", "y", "vx", "vy", "fx", "fy"] as const;
+
+/** `next` with every node that also exists in `prev` placed where the simulation had put it. */
+function withPositionsFrom(prev: MemoryGraph, next: MemoryGraph): MemoryGraph {
+  const placed = new Map(prev.nodes.map((n) => [n.id, n as GraphNode & Partial<Record<(typeof LAYOUT_KEYS)[number], number>>]));
+  for (const node of next.nodes as (GraphNode & Partial<Record<(typeof LAYOUT_KEYS)[number], number>>)[]) {
+    const old = placed.get(node.id);
+    if (!old) continue;
+    for (const key of LAYOUT_KEYS) if (old[key] !== undefined) node[key] = old[key];
+  }
+  return next;
+}
+
 function nodeSize(node: GraphNode): number {
   return node.type === "memory" ? 6 : node.type === "file" ? 4.5 : 3.5;
 }
@@ -42,7 +63,10 @@ export default function GraphView() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [search, setSearch] = useState(() => searchParams.get("tag") ?? "");
+  const [search, setSearch] = useState("");
+  // `whyanchor viewgraph --tag x` opens the page as /?tag=x: show only that tag's memories (and
+  // the files/tags they connect to) until the user clears it.
+  const [tagFilter, setTagFilter] = useState<string | null>(() => searchParams.get("tag"));
   const [typeFilters, setTypeFilters] = useState<TypeFilters>({ memory: true, file: true, tag: true });
   const [statusFilters, setStatusFilters] = useState<StatusFilters>({ active: true, stale: true, superseded: false });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -71,14 +95,22 @@ export default function GraphView() {
     return () => observer.disconnect();
   }, []);
 
+  const lastPayloadRef = useRef<string | null>(null);
+
   const fetchGraph = useCallback(async () => {
     try {
       const res = await fetch("/api/graph", { cache: "no-store" });
-      const body = await res.json();
+      const payload = await res.text();
+      const body = JSON.parse(payload);
       if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
-      setGraph(body as MemoryGraph);
       setError(null);
       setLastUpdated(new Date());
+      // Every poll returns brand-new node objects without positions, which restarts the force
+      // layout from scratch: the graph jumped every few seconds, clicks landed on empty space and
+      // dragged nodes snapped back. Skip identical payloads, and keep existing nodes where they are.
+      if (payload === lastPayloadRef.current) return;
+      lastPayloadRef.current = payload;
+      setGraph((prev) => (prev ? withPositionsFrom(prev, body as MemoryGraph) : (body as MemoryGraph)));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -105,8 +137,8 @@ export default function GraphView() {
       map.get(a)!.push(b);
     };
     graph?.edges.forEach((e) => {
-      add(e.source, e.target);
-      add(e.target, e.source);
+      add(endpointId(e.source), endpointId(e.target));
+      add(endpointId(e.target), endpointId(e.source));
     });
     return map;
   }, [graph]);
@@ -122,12 +154,30 @@ export default function GraphView() {
 
   const filteredGraphData = useMemo(() => {
     if (!graph) return { nodes: [] as GraphNode[], links: [] as MemoryGraph["edges"] };
-    const visibleIds = new Set(graph.nodes.filter(nodeVisible).map((n) => n.id));
+    let visibleIds = new Set(graph.nodes.filter(nodeVisible).map((n) => n.id));
+    if (tagFilter) {
+      const memories = new Set(
+        graph.nodes.filter((n) => n.type === "memory" && n.tags?.includes(tagFilter) && visibleIds.has(n.id)).map((n) => n.id)
+      );
+      const kept = new Set(memories);
+      for (const e of graph.edges) {
+        const [source, target] = [endpointId(e.source), endpointId(e.target)];
+        if (memories.has(source) && visibleIds.has(target)) kept.add(target);
+        if (memories.has(target) && visibleIds.has(source)) kept.add(source);
+      }
+      visibleIds = kept;
+    }
     return {
       nodes: graph.nodes.filter((n) => visibleIds.has(n.id)),
-      links: graph.edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target)),
+      links: graph.edges.filter((e) => visibleIds.has(endpointId(e.source)) && visibleIds.has(endpointId(e.target))),
     };
-  }, [graph, nodeVisible]);
+  }, [graph, nodeVisible, tagFilter]);
+
+  const clearTagFilter = useCallback(() => {
+    setTagFilter(null);
+    // Drop ?tag= so a reload doesn't bring the filter back.
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
 
   const matches = useCallback(
     (node: GraphNode) => {
@@ -212,6 +262,8 @@ export default function GraphView() {
       <Sidebar
         search={search}
         onSearchChange={setSearch}
+        tagFilter={tagFilter}
+        onClearTagFilter={clearTagFilter}
         typeFilters={typeFilters}
         onToggleType={(type) => setTypeFilters((f) => ({ ...f, [type]: !f[type] }))}
         statusFilters={statusFilters}
@@ -230,6 +282,12 @@ export default function GraphView() {
         ) : graph && graph.nodes.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-gray-500">
             No memory entries yet — run <code className="mx-1 text-gray-300">whyanchor capture</code> to add one.
+          </div>
+        ) : filteredGraphData.nodes.length === 0 ? (
+          <div className="flex h-full items-center justify-center px-8 text-center text-sm text-gray-500">
+            {tagFilter
+              ? `No entries tagged “${tagFilter}” match the current filters — superseded entries are hidden by default.`
+              : "Nothing matches the current filters."}
           </div>
         ) : containerSize.width > 0 && containerSize.height > 0 ? (
           <ForceGraph2D

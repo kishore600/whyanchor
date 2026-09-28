@@ -1,5 +1,6 @@
 import { getRepoRoot } from "../core/git.js";
-import { listEntries, storeExists } from "../core/store.js";
+import { loadEntries, storeExists } from "../core/store.js";
+import { warnInvalidEntries } from "./output.js";
 
 export interface ListOptions {
   tag?: string;
@@ -15,7 +16,9 @@ export async function runList(cwd: string, opts: ListOptions): Promise<void> {
     return;
   }
 
-  let entries = await listEntries(repoRoot);
+  const loaded = await loadEntries(repoRoot);
+  warnInvalidEntries(repoRoot, loaded.invalid);
+  let entries = loaded.entries;
   if (opts.tag) {
     entries = entries.filter((e) => e.frontmatter.tags.includes(opts.tag!));
   }

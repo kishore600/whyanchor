@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { upsertMarkedSection } from "./agentsFile.js";
+import { dominantEol, upsertMarkedSection, type UpsertResult } from "./agentsFile.js";
 
 export const SERVER_NAME = "whyanchor";
 
@@ -21,6 +21,9 @@ export interface ConnectResult {
   action: "created" | "updated" | "unchanged";
 }
 
+/** An existing agent config that can't be merged safely — refused rather than overwritten. */
+export class ConfigError extends Error {}
+
 /**
  * The command a spawned MCP client should run. Defaults to the absolute path of the
  * currently-executing CLI, which works regardless of how whyanchor was installed
@@ -28,6 +31,36 @@ export interface ConnectResult {
  */
 export function defaultServerCommand(cliPath: string): ServerCommand {
   return { command: "node", args: [cliPath, "mcp"] };
+}
+
+/**
+ * Whether the CLI is running out of a package manager's throwaway cache — `npx`'s `_npx/`,
+ * `pnpm dlx` / `yarn dlx`, `bunx` — a path that stops existing whenever that cache is pruned,
+ * so it must never be written into an agent config.
+ */
+export function isEphemeralInstall(cliPath: string): boolean {
+  return cliPath.split(/[\\/]+/).some((segment) => segment === "_npx" || /^dlx(?:-|$)/.test(segment) || segment.startsWith("bunx-"));
+}
+
+/**
+ * Launch the server through npx, independent of any one install location. On native Windows npx
+ * is a `.cmd` shim that MCP clients can't spawn directly, so it goes through `cmd /c`.
+ */
+export function npxServerCommand(platform: NodeJS.Platform = process.platform): ServerCommand {
+  const npx = ["npx", "-y", SERVER_NAME, "mcp"];
+  return platform === "win32" ? { command: "cmd", args: ["/c", ...npx] } : { command: npx[0], args: npx.slice(1) };
+}
+
+/** Splits a `--command` string into argv, honoring quotes: `node "C:\Program Files\x\cli.js" mcp`. */
+export function parseCommand(input: string): ServerCommand | null {
+  const parts = [...input.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
+  if (parts.length === 0) return null;
+  return { command: parts[0], args: parts.slice(1) };
+}
+
+/** Renders a command for display, quoting any argument that contains whitespace. */
+export function formatCommand(server: ServerCommand): string {
+  return [server.command, ...server.args].map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
 }
 
 function mcpJsonPath(repoRoot: string, agent: "claude" | "cursor"): string {
@@ -42,40 +75,61 @@ export async function connectJsonAgent(
 ): Promise<ConnectResult> {
   const filePath = mcpJsonPath(repoRoot, agent);
 
-  let config: Record<string, unknown> = {};
-  let existed = false;
+  let raw: string | null = null;
   try {
-    const raw = await readFile(filePath, "utf8");
-    existed = true;
-    config = JSON.parse(raw) as Record<string, unknown>;
+    raw = await readFile(filePath, "utf8");
   } catch {
-    if (existed) {
+    raw = null;
+  }
+
+  let config: Record<string, unknown> = {};
+  if (raw !== null) {
+    let parsed: unknown;
+    try {
+      // Windows editors (and PowerShell 5.1's Out-File) save UTF-8 with a BOM, which JSON.parse rejects.
+      parsed = JSON.parse(raw.replace(/^\uFEFF/, ""));
+    } catch {
       // The file is there but unparseable — refuse rather than overwrite someone's config.
-      throw new Error(`${filePath} exists but is not valid JSON. Fix or remove it, then re-run.`);
+      throw new ConfigError(`${filePath} exists but is not valid JSON. Fix or remove it, then re-run.`);
     }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new ConfigError(`${filePath} is valid JSON but not an object. Fix or remove it, then re-run.`);
+    }
+    config = parsed as Record<string, unknown>;
   }
 
   const rawServers = config.mcpServers;
-  const servers = (
-    rawServers && typeof rawServers === "object" && !Array.isArray(rawServers) ? rawServers : {}
-  ) as Record<string, ServerCommand>;
+  if (rawServers !== undefined && (!rawServers || typeof rawServers !== "object" || Array.isArray(rawServers))) {
+    throw new ConfigError(`${filePath} has an "mcpServers" value that is not an object. Fix or remove it, then re-run.`);
+  }
+  const servers = (rawServers ?? {}) as Record<string, Record<string, unknown>>;
   const current = servers[SERVER_NAME];
   if (current && current.command === server.command && JSON.stringify(current.args) === JSON.stringify(server.args)) {
     return { agent, filePath, action: "unchanged" };
   }
 
-  servers[SERVER_NAME] = server;
+  // Keep anything else the user put on our entry (`env`, `type`, ...); only the launch command is ours.
+  servers[SERVER_NAME] = { ...(current ?? {}), command: server.command, args: server.args };
   config.mcpServers = servers;
 
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, JSON.stringify(config, null, 2) + "\n", "utf8");
-  return { agent, filePath, action: existed ? "updated" : "created" };
+  return { agent, filePath, action: raw !== null ? "updated" : "created" };
 }
 
 function tomlTable(server: ServerCommand): string {
   const args = server.args.map((a) => JSON.stringify(a)).join(", ");
   return [`[mcp_servers.${SERVER_NAME}]`, `command = ${JSON.stringify(server.command)}`, `args = [${args}]`].join("\n");
 }
+
+// `[mcp_servers.whyanchor]`, `[ mcp_servers."whyanchor" ]` and `[mcp_servers.'whyanchor']` all name
+// the same table; appending a second copy would be a duplicate key, which makes the file invalid TOML.
+const OUR_TOML_HEADERS = new Set([
+  `[mcp_servers.${SERVER_NAME}]`,
+  `[mcp_servers."${SERVER_NAME}"]`,
+  `[mcp_servers.'${SERVER_NAME}']`,
+]);
+const TOML_TABLE_HEADER = /^\[\[?[^\]]+\]\]?\s*(?:#.*)?$/;
 
 /**
  * Codex uses TOML, not the JSON shape Claude Code and Cursor share. A new `[table]` header
@@ -86,16 +140,14 @@ export async function connectCodex(repoRoot: string, server: ServerCommand): Pro
   const filePath = path.join(repoRoot, ".codex", "config.toml");
   const table = tomlTable(server);
 
-  let existing = "";
-  let existed = false;
+  let existing: string | null = null;
   try {
     existing = await readFile(filePath, "utf8");
-    existed = true;
   } catch {
-    existed = false;
+    existing = null;
   }
 
-  if (!existed) {
+  if (existing === null) {
     const header = [
       "# Project-scoped MCP config for Codex CLI. Codex only reads this for projects you've",
       "# marked as trusted — run `codex trust` on this directory once.",
@@ -108,15 +160,16 @@ export async function connectCodex(repoRoot: string, server: ServerCommand): Pro
 
   // Find the table by exact header line and run to the next table header — not by regex over
   // the raw text, because an `args = [...]` value contains '[' and would end the match early.
-  const lines = existing.split("\n");
-  const header = `[mcp_servers.${SERVER_NAME}]`;
-  const startLine = lines.findIndex((l) => l.trim() === header);
+  const eol = dominantEol(existing);
+  const text = existing.replace(/\r\n/g, "\n");
+  const lines = text.split("\n");
+  const startLine = lines.findIndex((l) => OUR_TOML_HEADERS.has(l.replace(/\s+/g, "")));
 
   let next: string;
   if (startLine !== -1) {
     let endLine = lines.length;
     for (let i = startLine + 1; i < lines.length; i++) {
-      if (lines[i].trim().startsWith("[")) {
+      if (TOML_TABLE_HEADER.test(lines[i].trim())) {
         endLine = i;
         break;
       }
@@ -124,13 +177,13 @@ export async function connectCodex(repoRoot: string, server: ServerCommand): Pro
     const before = lines.slice(0, startLine).join("\n");
     const after = lines.slice(endLine).join("\n");
     const replaced = (before ? before + "\n" : "") + table + "\n" + (after ? "\n" + after.replace(/^\n+/, "") : "");
-    if (replaced.trim() === existing.trim()) return { agent: "codex", filePath, action: "unchanged" };
+    if (replaced.trim() === text.trim()) return { agent: "codex", filePath, action: "unchanged" };
     next = replaced;
   } else {
-    next = existing.trimEnd() + "\n\n" + table + "\n";
+    next = text.trimEnd() + "\n\n" + table + "\n";
   }
 
-  await writeFile(filePath, next, "utf8");
+  await writeFile(filePath, eol === "\r\n" ? next.replace(/\n/g, "\r\n") : next, "utf8");
   return { agent: "codex", filePath, action: "updated" };
 }
 
@@ -185,7 +238,8 @@ export function renderUsageSection(): string {
     "- **When you and the user land on a decision worth remembering** — a rejected approach, a",
     "  non-obvious constraint, a \"why we didn't just do X\" — call `capture_memory`. It writes a",
     "  git-tracked markdown file; it never commits on its own, so the user reviews it like any",
-    "  other change before it lands.",
+    "  other change before it lands. If it replaces an earlier entry, pass that entry's id as",
+    "  `supersedes`.",
     "- **Before relying on an entry for something risky**, call `list_stale_memory` to check whether",
     "  the code it references has drifted since it was written.",
     "",
@@ -198,7 +252,7 @@ export function renderUsageSection(): string {
 }
 
 /** Writes the agent usage instructions above the generated memory block, if one exists. */
-export async function writeUsageInstructions(repoRoot: string, fileName: string): Promise<"created" | "updated"> {
+export async function writeUsageInstructions(repoRoot: string, fileName: string): Promise<UpsertResult> {
   const filePath = path.join(repoRoot, fileName);
   await mkdir(path.dirname(filePath), { recursive: true });
   return upsertMarkedSection(filePath, renderUsageSection(), {

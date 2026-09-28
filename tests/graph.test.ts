@@ -60,6 +60,13 @@ describe("buildGraph", () => {
     const graph = buildGraph([next]);
     expect(graph.edges.filter((e) => e.type === "supersedes")).toHaveLength(0);
   });
+
+  it("carries each entry's full body for the detail panel, not just its first line", () => {
+    const entry = makeEntry({ id: "mem_a", body: "First line.\n\nSecond paragraph with the details." });
+    const node = buildGraph([entry]).nodes.find((n) => n.id === memoryNodeId("mem_a"));
+    expect(node?.summary).toBe("First line.");
+    expect(node?.body).toBe("First line.\n\nSecond paragraph with the details.");
+  });
 });
 
 describe("findRelatedEntries", () => {

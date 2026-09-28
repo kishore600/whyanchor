@@ -4,24 +4,36 @@ import type { MemoryEntry } from "../core/schema.js";
 const START_MARKER = "<!-- whyanchor:start -->";
 const END_MARKER = "<!-- whyanchor:end -->";
 
+/** A file whose markers are damaged — refused rather than guessed at. */
+export class MarkerError extends Error {}
+
+export type UpsertResult = "created" | "updated" | "unchanged";
+
+// A rendered line that is exactly a marker would be mistaken for the real one on the next run.
+const MARKER_LINE = /^<!--\s*whyanchor:[\w:-]+\s*-->$/;
+
 function renderEntry(entry: MemoryEntry): string {
-  const { title, date, refs, tags, status } = entry.frontmatter;
+  const { date, refs, tags, status } = entry.frontmatter;
+  const title = entry.frontmatter.title.replace(/\s+/g, " ").trim();
   const meta: string[] = [date];
   if (refs.length) meta.push(`refs: ${refs.join(", ")}`);
   if (tags.length) meta.push(`tags: ${tags.join(", ")}`);
   const badge = status !== "active" ? ` _(${status})_` : "";
-  const firstLine = entry.body.split("\n").find((l) => l.trim().length > 0) ?? "";
-  return `- **${title}**${badge} (${meta.join(" · ")})\n  ${firstLine}`;
+  const firstLine = (entry.body.split("\n").find((l) => l.trim().length > 0) ?? "").trim();
+  const summary = MARKER_LINE.test(firstLine) ? `\`${firstLine}\`` : firstLine;
+  return `- **${title}**${badge} (${meta.join(" · ")})\n  ${summary}`;
 }
 
-function groupByTag(entries: MemoryEntry[]): Map<string, MemoryEntry[]> {
+/**
+ * Each note is listed once, under its first tag — its meta line still shows every tag — so a note
+ * with three tags isn't injected into an agent's context three times.
+ */
+function groupByPrimaryTag(entries: MemoryEntry[]): Map<string, MemoryEntry[]> {
   const groups = new Map<string, MemoryEntry[]>();
   for (const entry of entries) {
-    const tags = entry.frontmatter.tags.length ? entry.frontmatter.tags : ["general"];
-    for (const tag of tags) {
-      if (!groups.has(tag)) groups.set(tag, []);
-      groups.get(tag)!.push(entry);
-    }
+    const tag = entry.frontmatter.tags[0] ?? "general";
+    if (!groups.has(tag)) groups.set(tag, []);
+    groups.get(tag)!.push(entry);
   }
   return groups;
 }
@@ -34,7 +46,7 @@ export function renderMemorySection(entries: MemoryEntry[]): string {
     );
   }
 
-  const groups = groupByTag(active);
+  const groups = groupByPrimaryTag(active);
   const lines: string[] = [
     START_MARKER,
     "## Project Memory",
@@ -63,58 +75,85 @@ export interface UpsertOptions {
   insertBefore?: string;
 }
 
+/** The line ending most of `text` uses, so edits can be written back without mixing endings. */
+export function dominantEol(text: string): "\n" | "\r\n" {
+  const crlf = text.match(/\r\n/g)?.length ?? 0;
+  const lf = (text.match(/\n/g)?.length ?? 0) - crlf;
+  return crlf > lf ? "\r\n" : "\n";
+}
+
+function lineIndicesOf(lines: string[], value: string): number[] {
+  const out: number[] = [];
+  lines.forEach((l, i) => l === value && out.push(i));
+  return out;
+}
+
 export async function upsertMarkedSection(
   filePath: string,
   section: string,
   options: UpsertOptions = {}
-): Promise<"created" | "updated"> {
+): Promise<UpsertResult> {
   const startMarker = options.startMarker ?? START_MARKER;
   const endMarker = options.endMarker ?? END_MARKER;
+  const block = section.replace(/\r\n/g, "\n");
 
-  let existing = "";
-  let created = false;
+  let existing: string;
   try {
     existing = await readFile(filePath, "utf8");
   } catch {
-    created = true;
-  }
-
-  if (created) {
-    await writeFile(filePath, section + "\n", "utf8");
+    await writeFile(filePath, block + "\n", "utf8");
     return "created";
   }
+
+  // Splice in LF, then write back with the file's own line endings — inserting LF text into a
+  // CRLF file (the Windows default under core.autocrlf) would leave it with mixed endings.
+  const eol = dominantEol(existing);
+  const text = existing.replace(/\r\n/g, "\n");
+  const lines = text.split("\n");
 
   // Match markers only on lines that consist solely of the marker — an entry's rendered
   // body can legitimately mention "<!-- whyanchor:end -->" as plain text (e.g. an entry
   // documenting this very marker scheme), and a naive indexOf would match that instead of
   // the real closing marker, corrupting the file.
-  const lines = existing.split("\n");
   const trimmedLines = lines.map((l) => l.trim());
-  const startLine = trimmedLines.indexOf(startMarker);
-  const endLine = trimmedLines.lastIndexOf(endMarker);
+  const starts = lineIndicesOf(trimmedLines, startMarker);
+  const ends = lineIndicesOf(trimmedLines, endMarker);
 
   let next: string;
-  if (startLine !== -1 && endLine !== -1 && endLine >= startLine) {
-    const before = lines.slice(0, startLine).join("\n");
-    const after = lines.slice(endLine + 1).join("\n");
-    next = (before ? before + "\n" : "") + section + (after ? "\n" + after : "\n");
-  } else {
+  if (starts.length === 1 && ends.length === 1 && ends[0] > starts[0]) {
+    const before = lines.slice(0, starts[0]).join("\n");
+    const after = lines.slice(ends[0] + 1).join("\n");
+    next = (before ? before + "\n" : "") + block + (after ? "\n" + after : "\n");
+  } else if (starts.length === 0 && ends.length === 0) {
     const anchor = options.insertBefore ? trimmedLines.indexOf(options.insertBefore) : -1;
     if (anchor !== -1) {
       const before = lines.slice(0, anchor).join("\n");
       const after = lines.slice(anchor).join("\n");
-      next = (before ? before + "\n" : "") + section + "\n\n" + after;
+      next = (before ? before + "\n" : "") + block + "\n\n" + after;
+    } else if (text.trim() === "") {
+      next = block + "\n";
     } else {
-      const sep = existing.endsWith("\n") ? "\n" : "\n\n";
-      next = existing + sep + section + "\n";
+      const sep = text.endsWith("\n") ? "\n" : "\n\n";
+      next = text + sep + block + "\n";
     }
+  } else {
+    // A lone or duplicated marker (a bad merge, an accidental delete) leaves no way to tell which
+    // lines are generated. Guessing "first start to last end" deletes whatever hand-written text
+    // sits between an orphaned marker and the real block, so refuse instead.
+    throw new MarkerError(
+      `${filePath} has ${starts.length} "${startMarker}" and ${ends.length} "${endMarker}" line(s) — ` +
+        `expected exactly one of each, start before end. Nothing was changed: restore the missing ` +
+        `marker or delete the stray one (or the whole block), then re-run.`
+    );
   }
 
-  await writeFile(filePath, next, "utf8");
+  const output = eol === "\r\n" ? next.replace(/\n/g, "\r\n") : next;
+  if (output === existing) return "unchanged";
+  await writeFile(filePath, output, "utf8");
   return "updated";
 }
 
-export async function upsertMemorySection(filePath: string, section: string): Promise<"created" | "updated"> {
+export async function upsertMemorySection(filePath: string, section: string): Promise<UpsertResult> {
   return upsertMarkedSection(filePath, section);
 }
 

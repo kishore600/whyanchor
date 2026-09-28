@@ -14,6 +14,8 @@ export interface GraphNode {
   tags?: string[];
   refs?: string[];
   summary?: string;
+  /** The entry's full markdown body, for the detail panel. */
+  body?: string;
 }
 
 export interface GraphEdge {
@@ -59,6 +61,7 @@ export function buildGraph(entries: MemoryEntry[]): MemoryGraph {
       tags: f.tags,
       refs: f.refs,
       summary: firstLine(entry.body),
+      body: entry.body,
     });
 
     for (const ref of f.refs) {

@@ -84,8 +84,8 @@ program
 program
   .command("viewgraph")
   .description("Start the interactive knowledge graph app and open it in your browser")
-  .option("--tag <tag>", "Pre-filter the graph to entries with this tag")
-  .option("--port <port>", "Port to run the graph server on (default: 4317, or a free port)", (v) => parseInt(v, 10))
+  .option("--tag <tag>", "Open the graph filtered to entries with this tag (clearable in the page)")
+  .option("--port <port>", "Port to run the graph server on (default: 4317, or a free port)", (v) => Number(v))
   .option("--no-open", "Start the server but don't open a browser")
   .action(async (options) => {
     await runViewgraph(process.cwd(), {
@@ -102,4 +102,12 @@ program
     await startMcpServer(process.cwd());
   });
 
-await program.parseAsync(process.argv);
+try {
+  await program.parseAsync(process.argv);
+} catch (err) {
+  // Expected failures (a file that can't be read or written, say) deserve a one-line message, not a
+  // stack trace; set WHYANCHOR_DEBUG=1 to see where it came from.
+  console.error(`✖ ${err instanceof Error ? err.message : String(err)}`);
+  if (process.env.WHYANCHOR_DEBUG && err instanceof Error && err.stack) console.error(err.stack);
+  process.exitCode = 1;
+}

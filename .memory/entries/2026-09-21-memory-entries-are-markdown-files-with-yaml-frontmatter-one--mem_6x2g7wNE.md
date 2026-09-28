@@ -9,7 +9,7 @@ tags:
 refs:
   - src/core/schema.ts#MemoryFrontmatterSchema
 supersedes: mem_53Kpli0Y
-status: active
+status: superseded
 commit: b64e2ae3d0ef05c5d39f3ea0f7a7c76bdea52566
 fingerprint:
   src/core/schema.ts#MemoryFrontmatterSchema:

@@ -1,7 +1,8 @@
 import prompts from "prompts";
-import { computeFingerprints } from "../core/fingerprint.js";
-import { getCurrentCommit, getGitAuthor, getRepoRoot } from "../core/git.js";
-import { findEntryById, storeExists, updateEntryFrontmatter, writeEntry } from "../core/store.js";
+import { CaptureError, captureEntry, findSupersedeTarget, type CaptureResult } from "../core/capture.js";
+import { getRepoRoot } from "../core/git.js";
+import { storeExists } from "../core/store.js";
+import { displayPath } from "./output.js";
 
 export interface CaptureOptions {
   title?: string;
@@ -19,13 +20,28 @@ function splitList(input?: string[]): string[] {
     .filter(Boolean);
 }
 
+function fail(message: string): void {
+  console.error(`✖ ${message}`);
+  process.exitCode = 1;
+}
+
 export async function runCapture(cwd: string, opts: CaptureOptions): Promise<void> {
   const repoRoot = (await getRepoRoot(cwd)) ?? cwd;
 
   if (!(await storeExists(repoRoot))) {
-    console.error("✖ No memory store found. Run `whyanchor init` first.");
-    process.exitCode = 1;
+    fail("No memory store found. Run `whyanchor init` first.");
     return;
+  }
+
+  // Check --supersedes before asking anything, so a mistyped id doesn't cost the user their answers.
+  if (opts.supersedes) {
+    try {
+      await findSupersedeTarget(repoRoot, opts.supersedes);
+    } catch (err) {
+      if (!(err instanceof CaptureError)) throw err;
+      fail(err.message);
+      return;
+    }
   }
 
   let title = opts.title;
@@ -64,54 +80,41 @@ export async function runCapture(cwd: string, opts: CaptureOptions): Promise<voi
     if (!tags.length && answers.tags) tags = splitList([answers.tags]);
   }
 
-  if (!title || !message) {
-    console.error("✖ A title and message are required.");
-    process.exitCode = 1;
+  if (!title?.trim() || !message?.trim()) {
+    fail("A title and message are required.");
     return;
   }
 
-  if (opts.supersedes) {
-    const prior = await findEntryById(repoRoot, opts.supersedes);
-    if (!prior) {
-      console.error(`✖ No memory entry found with id "${opts.supersedes}".`);
-      process.exitCode = 1;
-      return;
-    }
+  let result: CaptureResult;
+  try {
+    result = await captureEntry(repoRoot, { title, body: message, refs, tags, supersedes: opts.supersedes });
+  } catch (err) {
+    if (!(err instanceof CaptureError)) throw err;
+    fail(err.message);
+    return;
   }
 
-  const [author, commit] = await Promise.all([getGitAuthor(repoRoot), getCurrentCommit(repoRoot)]);
-  const fingerprints = await computeFingerprints(repoRoot, refs);
-
-  const entry = await writeEntry(
-    repoRoot,
-    {
-      title,
-      author,
-      tags,
-      refs,
-      supersedes: opts.supersedes ?? null,
-      status: "active",
-      commit,
-      fingerprint: fingerprints,
-      last_checked: null,
-    },
-    message
-  );
-
-  if (opts.supersedes) {
-    const prior = await findEntryById(repoRoot, opts.supersedes);
-    if (prior) {
-      await updateEntryFrontmatter(prior, { status: "superseded" });
-      console.log(`✔ Marked ${opts.supersedes} as superseded.`);
+  if (result.superseded) {
+    const id = result.superseded.frontmatter.id;
+    console.log(`✔ Marked ${id} as superseded.`);
+    if (result.alreadySupersededBy.length) {
+      console.warn(
+        `⚠ ${id} had already been superseded by ${result.alreadySupersededBy.join(", ")}, so more than one ` +
+          `active entry now replaces it. If you meant to update the newer one, supersede that instead.`
+      );
     }
   }
-
-  console.log(`✔ Captured "${title}" → ${entry.filePath}`);
-  if (refs.length) {
-    const missing = refs.filter((r) => fingerprints[r]?.kind === "missing");
-    if (missing.length) {
-      console.warn(`⚠ Could not resolve ${missing.length} ref(s), captured anyway: ${missing.join(", ")}`);
-    }
+  console.log(`✔ Captured "${result.entry.frontmatter.title}" → ${displayPath(repoRoot, result.entry.filePath)}`);
+  if (result.unresolvedRefs.length) {
+    console.warn(
+      `⚠ Could not resolve ${result.unresolvedRefs.length} ref(s) (file not found), captured anyway: ${result.unresolvedRefs.join(", ")}`
+    );
+  }
+  if (result.wholeFileRefs.length) {
+    console.warn(`⚠ Symbol not found — watching the whole file instead: ${result.wholeFileRefs.join(", ")}`);
+  }
+  if (result.outsideRepoRefs.length) {
+    console.warn(`⚠ Ref(s) outside this repository: ${result.outsideRepoRefs.join(", ")}`);
   }
   console.log("Run `whyanchor generate` to reflect this in CLAUDE.md / AGENTS.md.");
 }

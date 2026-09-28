@@ -39,7 +39,11 @@ export default function DetailPanel({ node, connections, onSelectNode }: DetailP
         </div>
       )}
 
-      {node.summary && <p className="leading-relaxed text-gray-300">{node.summary}</p>}
+      {node.body ? (
+        <p className="whitespace-pre-wrap break-words leading-relaxed text-gray-300">{node.body}</p>
+      ) : (
+        node.summary && <p className="leading-relaxed text-gray-300">{node.summary}</p>
+      )}
 
       {node.refs && node.refs.length > 0 && (
         <div>

@@ -9,7 +9,7 @@ tags:
 refs:
   - src/core/staleness.ts#checkRef
 supersedes: mem_bRW4nIut
-status: active
+status: superseded
 commit: df30769ef4f797001b55b0bcee3402d61257d39f
 fingerprint:
   src/core/staleness.ts#checkRef:

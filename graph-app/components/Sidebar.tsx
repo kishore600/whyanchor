@@ -6,6 +6,8 @@ import DetailPanel from "./DetailPanel";
 interface SidebarProps {
   search: string;
   onSearchChange: (value: string) => void;
+  tagFilter: string | null;
+  onClearTagFilter: () => void;
   typeFilters: TypeFilters;
   onToggleType: (type: keyof TypeFilters) => void;
   statusFilters: StatusFilters;
@@ -34,6 +36,8 @@ const STATUS_OPTIONS: { key: keyof StatusFilters; label: string }[] = [
 export default function Sidebar({
   search,
   onSearchChange,
+  tagFilter,
+  onClearTagFilter,
   typeFilters,
   onToggleType,
   statusFilters,
@@ -65,6 +69,22 @@ export default function Sidebar({
         </p>
         {error && <p className="mt-2 rounded-md bg-red-500/10 px-2 py-1 text-xs text-red-400">{error}</p>}
       </div>
+
+      {tagFilter && (
+        <div className="flex items-center justify-between rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-200">
+          <span>
+            Showing tag <span className="font-medium text-white">{tagFilter}</span>
+          </span>
+          <button
+            type="button"
+            onClick={onClearTagFilter}
+            title="Show all entries"
+            className="rounded-md px-2 py-0.5 text-xs text-violet-300 hover:bg-white/10 hover:text-white"
+          >
+            Clear ✕
+          </button>
+        </div>
+      )}
 
       <input
         type="text"

@@ -3,10 +3,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  ConfigError,
   connectCodex,
   connectJsonAgent,
   ensureCursorRuleFile,
+  formatCommand,
   hasLegacyRootClaudeFile,
+  isEphemeralInstall,
+  npxServerCommand,
+  parseCommand,
   writeUsageInstructions,
 } from "../src/generators/agentConfig.js";
 import { upsertMarkedSection } from "../src/generators/agentsFile.js";
@@ -226,5 +231,108 @@ describe("writeUsageInstructions", () => {
     await writeUsageInstructions(dir, "CLAUDE.md");
     const content = await readFile(path.join(dir, "CLAUDE.md"), "utf8");
     expect(content.match(/whyanchor:usage:start/g)?.length).toBe(1);
+  });
+
+  it("reports unchanged on a re-run instead of claiming an update", async () => {
+    expect(await writeUsageInstructions(dir, "CLAUDE.md")).toBe("created");
+    expect(await writeUsageInstructions(dir, "CLAUDE.md")).toBe("unchanged");
+  });
+});
+
+describe("connectJsonAgent — configs it must not mangle", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "whyanchor-connect2-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("merges into a config saved with a UTF-8 BOM (Windows editors, PowerShell 5.1)", async () => {
+    await writeFile(path.join(dir, ".mcp.json"), '\uFEFF{ "mcpServers": { "other": { "command": "x", "args": [] } } }', "utf8");
+    const result = await connectJsonAgent(dir, "claude", SERVER);
+    expect(result.action).toBe("updated");
+    const config = JSON.parse(await readFile(path.join(dir, ".mcp.json"), "utf8"));
+    expect(Object.keys(config.mcpServers).sort()).toEqual(["other", "whyanchor"]);
+  });
+
+  it("refuses valid JSON that isn't an object, and an mcpServers that isn't one", async () => {
+    for (const content of ["[]", "null", '"text"', '{ "mcpServers": [] }', '{ "mcpServers": "x" }']) {
+      await writeFile(path.join(dir, ".mcp.json"), content, "utf8");
+      await expect(connectJsonAgent(dir, "claude", SERVER)).rejects.toThrow(ConfigError);
+      expect(await readFile(path.join(dir, ".mcp.json"), "utf8")).toBe(content);
+    }
+  });
+
+  it("keeps extra settings the user added to the whyanchor entry, like env", async () => {
+    await writeFile(
+      path.join(dir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { whyanchor: { command: "old", args: [], env: { WHYANCHOR_DEBUG: "1" } } } }),
+      "utf8"
+    );
+    await connectJsonAgent(dir, "claude", SERVER);
+    const config = JSON.parse(await readFile(path.join(dir, ".mcp.json"), "utf8"));
+    expect(config.mcpServers.whyanchor).toEqual({ ...SERVER, env: { WHYANCHOR_DEBUG: "1" } });
+  });
+});
+
+describe("connectCodex — existing files", () => {
+  let dir: string;
+  const tomlPath = () => path.join(dir, ".codex", "config.toml");
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "whyanchor-codex2-"));
+    await mkdir(path.join(dir, ".codex"), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("replaces a table written with a quoted key rather than adding a duplicate (invalid TOML)", async () => {
+    await writeFile(tomlPath(), '[mcp_servers."whyanchor"]\ncommand = "old"\nargs = []\n\n[mcp_servers.other]\ncommand = "o"\n', "utf8");
+    await connectCodex(dir, SERVER);
+    const toml = await readFile(tomlPath(), "utf8");
+    expect(toml.match(/\[mcp_servers\.("?)whyanchor\1\]/g)).toHaveLength(1);
+    expect(toml).toContain('command = "node"');
+    expect(toml).toContain("[mcp_servers.other]");
+  });
+
+  it("keeps a CRLF file CRLF", async () => {
+    await writeFile(tomlPath(), 'model = "gpt-5"\r\n\r\n[mcp_servers.whyanchor]\r\ncommand = "old"\r\nargs = []\r\n', "utf8");
+    await connectCodex(dir, SERVER);
+    const toml = await readFile(tomlPath(), "utf8");
+    expect(toml).toContain('command = "node"\r\n');
+    expect(toml.replace(/\r\n/g, "")).not.toContain("\n");
+  });
+
+  it("is unchanged on a re-run", async () => {
+    await connectCodex(dir, SERVER);
+    expect((await connectCodex(dir, SERVER)).action).toBe("unchanged");
+  });
+});
+
+describe("server command helpers", () => {
+  it("recognizes package-manager caches that get pruned", () => {
+    expect(isEphemeralInstall("C:\\Users\\me\\AppData\\Local\\npm-cache\\_npx\\a1b2\\node_modules\\whyanchor\\dist\\cli.js")).toBe(true);
+    expect(isEphemeralInstall("/home/me/.npm/_npx/a1b2/node_modules/whyanchor/dist/cli.js")).toBe(true);
+    expect(isEphemeralInstall("/home/me/.cache/pnpm/dlx/xyz/node_modules/whyanchor/dist/cli.js")).toBe(true);
+    expect(isEphemeralInstall("/tmp/bunx-501-whyanchor@latest/node_modules/whyanchor/dist/cli.js")).toBe(true);
+    expect(isEphemeralInstall("C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\whyanchor\\dist\\cli.js")).toBe(false);
+    expect(isEphemeralInstall("/usr/local/lib/node_modules/whyanchor/dist/cli.js")).toBe(false);
+  });
+
+  it("launches npx through cmd /c on Windows, directly elsewhere", () => {
+    expect(npxServerCommand("win32")).toEqual({ command: "cmd", args: ["/c", "npx", "-y", "whyanchor", "mcp"] });
+    expect(npxServerCommand("darwin")).toEqual({ command: "npx", args: ["-y", "whyanchor", "mcp"] });
+  });
+
+  it("parses --command with quoted arguments, and rejects an empty one", () => {
+    expect(parseCommand('node "C:\\Program Files\\wa\\cli.js" mcp')).toEqual({ command: "node", args: ["C:\\Program Files\\wa\\cli.js", "mcp"] });
+    expect(parseCommand("npx -y whyanchor mcp")).toEqual({ command: "npx", args: ["-y", "whyanchor", "mcp"] });
+    expect(parseCommand("   ")).toBeNull();
+    expect(formatCommand({ command: "node", args: ["C:\\Program Files\\x.js", "mcp"] })).toBe('node "C:\\Program Files\\x.js" mcp');
   });
 });

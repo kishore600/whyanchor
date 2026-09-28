@@ -11,9 +11,11 @@ export interface GraphNode {
   tags?: string[];
   refs?: string[];
   summary?: string;
+  body?: string;
 }
 
 export interface GraphEdge {
+  // Ids as served by /api/graph. The force simulation later swaps them for node objects in place.
   source: string;
   target: string;
   type: GraphEdgeType;

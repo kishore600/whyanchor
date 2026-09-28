@@ -81,8 +81,8 @@ that gets abandoned in month two.
 
 ## Architecture
 
-Everything is files in your git repo. There is no database and no server. This is the end-to-end
-picture — [the day-to-day workflow](#the-day-to-day-workflow) below zooms into each arrow one at a
+Everything is files in your git repo. There is no database, and no server apart from the optional,
+local-only `viewgraph` UI. This is the end-to-end picture — [the day-to-day workflow](#the-day-to-day-workflow) below zooms into each arrow one at a
 time.
 
 ![End-to-end architecture: you and your agent both write to .memory/entries, whyanchor generate rolls it into CLAUDE.md/AGENTS.md/Cursor rules, and whyanchor check compares notes against git history](docs/diagrams/architecture.svg)
@@ -104,8 +104,8 @@ Following the numbers:
 
 ## Install
 
-Requires **Node.js 18+** and **git**. whyanchor is published on npm — there is nothing to clone
-or build.
+Requires **Node.js 20.9+** (the bundled graph UI runs on Next.js 16) and **git**. whyanchor is
+published on npm — there is nothing to clone or build.
 
 ```bash
 npx whyanchor init
@@ -134,10 +134,12 @@ whyanchor init      # creates .memory/ to hold your notes
 whyanchor connect   # wires the tool into Claude Code, Cursor, and Codex
 ```
 
-That is the entire setup. `whyanchor connect` writes the config files your agents need and adds a
+That is the entire setup. `init` creates `.memory/` (with a `.gitkeep`, so the empty store survives
+being committed and cloned). `whyanchor connect` writes the config files your agents need and adds a
 short instruction block to `.claude/CLAUDE.md` and `AGENTS.md` telling the agent when to use it. It
 **merges** into any config you already have — it never overwrites other MCP servers, and if it
-cannot understand a config file it stops rather than damaging it.
+cannot understand a config file it leaves that one untouched, reports it, and still sets up the
+other agents.
 
 Now save your first decision. Just run the command with no flags — it asks you the questions:
 
@@ -159,12 +161,12 @@ whyanchor capture
 √ Tags (comma-separated, optional)
   pricing, legal
 
-✔ Captured "Enterprise discount is 30% by contract, not a guess"
-  → .memory/entries/2026-09-21-enterprise-discount-is-30-by-contract-not-a-guess-mem_a8AwCAoR.md
+✔ Captured "Enterprise discount is 30% by contract, not a guess" → .memory/entries/2026-09-21-enterprise-discount-is-30-by-contract-not-a-guess-mem_a8AwCAoR.md
 ```
 
 The third question — **anchoring** the note to `src/pricing.ts#calculateDiscount` — is the part
-that matters most. That anchor is what makes staleness detection possible later.
+that matters most. That anchor is what makes staleness detection possible later. If a file doesn't
+exist, or a symbol can't be found in it, `capture` still saves the note but tells you so.
 
 Same flow, a second time, anchored to a real file in a feature folder rather than the pricing
 toy example — this is what it looks like day to day:
@@ -250,7 +252,7 @@ Your edits to the frontmatter are preserved. `whyanchor generate` only rewrites 
 | Mid-conversation with an agent | Nothing — the agent calls `capture_memory` itself | That's the point of wiring up MCP |
 | After a batch of captures, or before opening the project in your agent | `whyanchor generate` | Rolls new notes into `CLAUDE.md` / `AGENTS.md` / Cursor's rules file |
 | Right before you commit | `whyanchor check` (or the git hook below) | Catches notes that silently went stale because of this change |
-| A note comes back `[STALE]` | `whyanchor capture --supersedes <id>` | Writes a corrected note; the old one stays in git history, marked superseded — never edited in place |
+| A note comes back `[STALE]` | `whyanchor capture --supersedes <id>` | Writes a corrected note; the old one stays in `.memory/entries/` with its status flipped to `superseded` — its text is never rewritten |
 
 The five diagrams below cover, respectively: the loop above end to end, then each of its steps in
 more detail — how a note gets written, how it gets back out to an agent (two different ways), and
@@ -284,7 +286,10 @@ before it has even started a session):
 
 The replacement is marker-scoped and line-exact, not a full-file rewrite — so a hand-written note
 above the block, or a note whose own body happens to contain marker-like text, cannot corrupt the
-file.
+file. If a marker has gone missing or been duplicated (a bad merge, an accidental delete), `generate`
+refuses to touch that file and says why, rather than guessing which lines are generated and deleting
+yours. The file keeps its own line endings (a CRLF file stays CRLF), and each note is listed once,
+under its first tag.
 
 ### MCP integration flow
 
@@ -294,10 +299,13 @@ What `whyanchor connect` sets up, and what happens live once the agent is runnin
 
 <sub>[Diagram source](docs/diagrams/mcp-integration-flow.mmd)</sub>
 
-If you installed with `npm install -g`, the command `connect` registers is stable. If you're
-running the tool via bare `npx whyanchor`, pass `--command "npx -y whyanchor mcp"` explicitly when
-connecting — `npx`'s own cache is pruned periodically, and a config pointed at that cache's
-temporary path can stop resolving later.
+By default `connect` registers the absolute path of the whyanchor it was run with (`node
+/path/to/whyanchor/dist/cli.js mcp`), which stays valid on that machine for a global install or a
+source checkout. When it's run through `npx whyanchor` (or `pnpm dlx` / `bunx`), that path is a
+temporary cache that gets pruned, so `connect` registers `npx -y whyanchor mcp` instead — wrapped in
+`cmd /c` on Windows, where MCP clients can't launch npx's `.cmd` shim directly. If you commit these
+configs for a team, pick a command that works on everyone's machine and pass it with `--command`
+(quotes are honored, e.g. `--command "node \"C:\Program Files\wa\cli.js\" mcp"`).
 
 ### Memory retrieval flow
 
@@ -319,7 +327,10 @@ whyanchor check --fail-on-stale || {
 }
 ```
 
-`--fail-on-stale` exits with code `1` when something is flagged, so it also works as a CI step.
+`--fail-on-stale` exits with code `1` when something is flagged — or when an entry file can't be
+read at all (say, a merge conflict in its frontmatter), since that note can't be checked either — so
+it also works as a CI step. Every command skips an unreadable entry with a warning naming the file,
+rather than failing outright.
 
 ---
 
@@ -365,11 +376,12 @@ tags it shares with other notes, and — when one note supersedes another — th
 `viewgraph` draws that as an actual graph instead of leaving you to trace it through `list` output
 by hand.
 
-It's a small Next.js app, bundled inside whyanchor itself: `viewgraph` starts it on `localhost`
-(picking a free port automatically) and opens your browser to it. Nothing about this reaches the
-network beyond your own machine — the page fetches its data from a local API route that reads
-straight from `.memory/entries/` — but it genuinely is a running server, not a file you're opening
-directly, and it keeps running in your terminal until you press Ctrl+C. The page has:
+It's a small Next.js app, bundled inside whyanchor itself: `viewgraph` starts it on `127.0.0.1`
+(picking a free port automatically) and opens your browser to it. The server listens on the loopback
+interface only, so nothing on your network can reach it — the page fetches its data from a local API
+route that reads straight from `.memory/entries/` — but it genuinely is a running server, not a file
+you're opening directly, and it keeps running in your terminal until you press Ctrl+C. If you ask
+for a `--port` that's already taken, it says so and exits instead of starting. The page has:
 
 - **Memory, file, and tag nodes**, force-directed and colored by type, with a memory node's color
   showing its `stale`/`superseded` status
@@ -380,10 +392,10 @@ directly, and it keeps running in your terminal until you press Ctrl+C. The page
 - **A detail panel** — click any node to see its full body, refs, and tags, and jump to
   whatever it's connected to
 - **Auto-refresh** — it polls for new captures every few seconds, so a decision an agent just
-  saved shows up without you restarting anything
+  saved shows up without you restarting anything (nodes you've arranged stay where they are)
 
 ```bash
-whyanchor viewgraph --tag billing   # pre-filter to one tag
+whyanchor viewgraph --tag billing   # open filtered to one tag's notes (clear it in the page)
 whyanchor viewgraph --port 5000 --no-open   # run on a specific port, don't launch a browser
 ```
 
@@ -408,12 +420,16 @@ so the graph is always as current as your last capture.
 
 | Tool | When the agent uses it |
 | --- | --- |
-| `get_memory_for_file` | Before editing a file — "what do I need to know about this one?" |
+| `get_memory_for_file` | Before editing a file — "what do I need to know about this one?" Takes a repo-relative or absolute path (either slash direction); `file#symbol` narrows to that symbol's notes plus whole-file notes. |
 | `search_memory` | Before a big decision — "has this already been decided?" Ranked locally by relevance (title/tags/refs/body), no embeddings or network calls involved. |
-| `get_related_memory` | To pull in other notes connected to one it already has, via shared files, shared tags, or a supersedes chain — the same relationships `whyanchor viewgraph` draws as edges |
-| `get_memory_entry` | To read one note in full |
+| `get_related_memory` | To pull in other notes connected to one it already has, via shared files, shared tags, or a supersedes chain — the same relationships `whyanchor viewgraph` draws as edges. Given a superseded note, it returns the note that replaced it. |
+| `get_memory_entry` | To read one note in full, including what it supersedes and what superseded it |
 | `list_stale_memory` | To check whether a note can still be trusted |
-| `capture_memory` | To save a new decision during your conversation |
+| `capture_memory` | To save a new decision during your conversation. Pass `supersedes` to replace a stale note; the reply warns about refs it couldn't resolve. |
+
+If the MCP server is started somewhere with no `.memory/` (usually an agent launching it outside the
+project directory), every tool returns an error saying so, rather than an empty list that looks
+like "nothing recorded".
 
 Both `search_memory` and `get_related_memory` return compact summaries (title, tags, refs, a
 one-line preview), not full bodies — keeping an agent's context usage low even as the store grows.
@@ -462,9 +478,22 @@ Real example from this repo: a refactor split one function into two. `whyanchor 
 note pointing at the old one, the note got superseded with a corrected anchor, and the
 documentation stayed true. That is the loop working.
 
-**No AI is involved in this check.** It is hashes and `git log` — fast, free, and it runs on every
+**No AI is involved in this check.** It is hashes and git history — fast, free, and it runs on every
 commit. It tells you *that* something changed, not *whether the reasoning still holds*. A human
 still makes that call.
+
+Two things it deliberately ignores, because they aren't changes to the code:
+
+- **Line endings and a BOM.** Code is normalized to LF before hashing, so a note captured on macOS
+  isn't flagged the moment a teammate (or CI) checks the repo out on Windows with `core.autocrlf`.
+- **A rewritten or shallow history.** If the commit a note was captured on no longer exists (rebase,
+  squash, `--depth 1` clone), the content comparison still runs and the report says the commit
+  count is unavailable, instead of claiming "0 commits".
+
+Notes captured by whyanchor 0.2.0 and earlier sometimes fingerprinted only part of a symbol (for example
+just the signature of a function with a destructured parameter). When that part is unchanged,
+`check` reports the note as `[low]` with a hint to supersede it — which re-anchors it to the whole
+symbol — rather than calling it changed.
 
 ---
 
@@ -592,12 +621,12 @@ conversion experiments without contract review.
 | `id` | Permanent identifier for this note |
 | `title` | One-line summary, shown in lists and reports |
 | `date` / `author` | Who wrote it and when — taken from your git config |
-| `tags` | Free-form labels, used to group notes in the generated file |
+| `tags` | Free-form labels; the first one decides which heading a note is listed under in the generated files |
 | `refs` | The anchors: `path/to/file.ts` or `path/to/file.ts#functionName` |
 | `supersedes` | The `id` of a note this one replaces |
 | `status` | `active`, `stale`, or `superseded` |
 | `commit` | The commit you were on when you wrote it — the baseline for checks |
-| `fingerprint` | Hash of the anchored code at the time of writing |
+| `fingerprint` | Hash of the anchored code at the time of writing (`kind: file` when a symbol couldn't be found and the whole file is watched) |
 | `last_checked` | When `whyanchor check --write` last looked at it |
 
 **Anchoring supports two shapes:**
@@ -605,9 +634,14 @@ conversion experiments without contract review.
 - `src/pricing.ts` — watches the whole file
 - `src/pricing.ts#calculateDiscount` — watches only that function or class
 
-Function detection works on brace languages (JavaScript, TypeScript, Go, Java, C#…) and
-indentation languages (Python). If a function cannot be found, the tool falls back to watching the
-whole file rather than failing.
+Symbol detection covers functions, methods, classes, interfaces, types, enums and constants in brace
+languages (JavaScript, TypeScript, Go, Java, C#, Rust, Kotlin…) — including multi-line signatures,
+destructured parameters, Allman-style braces and TypeScript overloads — and indentation languages
+(Python, Ruby), including multi-line `def` signatures. If a symbol cannot be found, `capture` warns
+and falls back to watching the whole file rather than failing, and `check` keeps comparing that
+note as a whole file.
+
+Entries are hand-editable: unquoted YAML dates like the `date: 2026-09-21` above are fine.
 
 ---
 
@@ -624,12 +658,15 @@ whyanchor/
 │   │   ├── check.ts              # staleness report
 │   │   ├── generate.ts
 │   │   ├── list.ts
-│   │   └── viewgraph.ts          # renders and opens the knowledge graph
+│   │   ├── viewgraph.ts          # renders and opens the knowledge graph
+│   │   └── output.ts             # shared CLI output helpers
 │   ├── core/
 │   │   ├── schema.ts             # what a valid note looks like
 │   │   ├── store.ts              # reading and writing note files
+│   │   ├── capture.ts            # the one capture path the CLI and MCP share
 │   │   ├── git.ts                # author, commit, "what changed since"
-│   │   ├── fingerprint.ts        # finding a function and hashing it
+│   │   ├── fingerprint.ts        # finding a symbol and hashing it
+│   │   ├── legacyFingerprint.ts  # recognizes fingerprints from older versions
 │   │   ├── staleness.ts          # the four-level decision
 │   │   ├── graph.ts              # the memory/file/tag relationship graph
 │   │   ├── search.ts             # local lexical ranking, no embeddings
@@ -646,7 +683,7 @@ whyanchor/
 │   │   └── api/graph/route.ts     # reads .memory/entries/ via ../dist/core/*, returns JSON
 │   ├── components/                # GraphView (the force graph), Sidebar, DetailPanel
 │   └── lib/                       # client-side types + node/edge colors
-├── tests/                        # 54 tests, including real git repos
+├── tests/                        # 163 tests, including real git repos and a real MCP client
 ├── .memory/entries/              # this project's own notes about itself
 ├── .claude/CLAUDE.md             # generated — agent instructions + notes
 ├── AGENTS.md                     # generated — same, for Codex/Cursor/Copilot/…
@@ -677,8 +714,10 @@ npm test            # run the test suite
 npm run dev -- list # run a command straight from source, no build
 ```
 
-**54 tests across 9 files.** The staleness tests are not mocked — they create real temporary git
-repos, make real commits, and assert that each of the four levels comes out right. That is how the
+**163 tests across 13 files.** The staleness tests are not mocked — they create real temporary git
+repos, make real commits (including CRLF checkouts and rewritten history), and assert that each of
+the four levels comes out right. The MCP tests drive the server through a real MCP client, the same
+protocol an agent speaks. That is how the
 two nastiest bugs in this codebase were caught before release:
 
 - A function whose signature spanned six lines was fingerprinted from its declaration line only,

@@ -9,7 +9,7 @@ tags:
 refs:
   - src/generators/agentsFile.ts#upsertMarkedSection
 supersedes: mem_JzWAzwRj
-status: active
+status: superseded
 commit: 643e17d9f68de69ca99a8990b634793c769a5801
 fingerprint:
   src/generators/agentsFile.ts#upsertMarkedSection:

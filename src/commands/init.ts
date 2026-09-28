@@ -1,6 +1,6 @@
-import path from "node:path";
 import { getRepoRoot, isGitRepo } from "../core/git.js";
-import { initStore, storeExists } from "../core/store.js";
+import { initStore, memoryDir, storeExists } from "../core/store.js";
+import { displayPath } from "./output.js";
 
 export async function runInit(cwd: string): Promise<void> {
   if (!(await isGitRepo(cwd))) {
@@ -10,14 +10,18 @@ export async function runInit(cwd: string): Promise<void> {
   }
 
   const repoRoot = (await getRepoRoot(cwd)) ?? cwd;
+  const existed = await storeExists(repoRoot);
+  const created = await initStore(repoRoot);
 
-  if (await storeExists(repoRoot)) {
-    console.log(`Memory store already exists at ${path.join(repoRoot, ".memory")}`);
+  if (existed) {
+    console.log(`Memory store already exists at ${memoryDir(repoRoot)}`);
+    if (created.length) {
+      console.log(`✔ Restored missing ${created.map((p) => displayPath(repoRoot, p)).join(", ")}`);
+    }
     return;
   }
 
-  await initStore(repoRoot);
-  console.log(`✔ Initialized memory store at ${path.join(repoRoot, ".memory")}`);
+  console.log(`✔ Initialized memory store at ${memoryDir(repoRoot)}`);
   console.log("");
   console.log("Next steps:");
   console.log("  whyanchor connect     wire the MCP server into Claude Code / Cursor / Codex");

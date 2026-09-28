@@ -1,6 +1,7 @@
 import { getRepoRoot } from "../core/git.js";
 import { checkEntries, type EntryStaleness, type StalenessLevel } from "../core/staleness.js";
-import { listEntries, storeExists, updateEntryFrontmatter } from "../core/store.js";
+import { loadEntries, storeExists, updateEntryFrontmatter } from "../core/store.js";
+import { warnInvalidEntries } from "./output.js";
 
 export interface CheckOptions {
   json?: boolean;
@@ -24,7 +25,8 @@ export async function runCheck(cwd: string, opts: CheckOptions): Promise<void> {
     return;
   }
 
-  const entries = await listEntries(repoRoot);
+  const { entries, invalid } = await loadEntries(repoRoot);
+  warnInvalidEntries(repoRoot, invalid);
   const active = entries.filter((e) => e.frontmatter.status !== "superseded");
   const results = await checkEntries(repoRoot, active);
 
@@ -51,17 +53,18 @@ export async function runCheck(cwd: string, opts: CheckOptions): Promise<void> {
       )
     );
   } else {
-    printReport(results);
+    printReport(results, invalid.length);
   }
 
+  // An entry that can't be read can't be checked either — that is not a passing result.
   const staleCount = results.filter((r) => r.level === "high" || r.level === "missing").length;
-  if (opts.failOnStale && staleCount > 0) {
+  if (opts.failOnStale && staleCount + invalid.length > 0) {
     process.exitCode = 1;
   }
 }
 
-function printReport(results: EntryStaleness[]): void {
-  if (results.length === 0) {
+function printReport(results: EntryStaleness[], invalidCount: number): void {
+  if (results.length === 0 && invalidCount === 0) {
     console.log("No memory entries to check. Run `whyanchor capture` to add one.");
     return;
   }
@@ -83,7 +86,8 @@ function printReport(results: EntryStaleness[]): void {
   );
 
   console.log("");
+  const unreadable = invalidCount ? `, ${invalidCount} unreadable` : "";
   console.log(
-    `${results.length} entries — ${counts.fresh} fresh, ${counts.low} low-confidence, ${counts.high} flagged, ${counts.missing} missing refs`
+    `${results.length} entries — ${counts.fresh} fresh, ${counts.low} low-confidence, ${counts.high} flagged, ${counts.missing} missing refs${unreadable}`
   );
 }

@@ -1,0 +1,7 @@
+{
+  "name": "acme-billing",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Billing service: discounts, tax, and invoice sync with PayCo."
+}

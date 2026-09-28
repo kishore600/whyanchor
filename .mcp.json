@@ -1,10 +1,9 @@
 {
   "mcpServers": {
     "whyanchor": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "tsx",
-        "src/cli.ts",
+        "C:\\Users\\kishore.k\\AppData\\Roaming\\npm\\node_modules\\whyanchor\\dist\\cli.js",
         "mcp"
       ]
     }

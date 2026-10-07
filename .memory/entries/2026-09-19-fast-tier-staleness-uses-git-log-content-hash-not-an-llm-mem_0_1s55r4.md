@@ -7,12 +7,12 @@ tags:
   - architecture
   - staleness
 refs:
-  - src/core/staleness.ts#checkRef
+  - apps/cli/src/core/staleness.ts#checkRef
 supersedes: mem_bRW4nIut
 status: superseded
 commit: df30769ef4f797001b55b0bcee3402d61257d39f
 fingerprint:
-  src/core/staleness.ts#checkRef:
+  apps/cli/src/core/staleness.ts#checkRef:
     hash: 5890e79ed5079155
     kind: symbol
 last_checked: null

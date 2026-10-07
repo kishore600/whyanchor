@@ -647,8 +647,26 @@ Entries are hand-editable: unquoted YAML dates like the `date: 2026-09-21` above
 
 ## Project layout
 
+This is an npm-workspaces monorepo. The CLI you install from npm is `apps/cli`; the other
+workspaces are the groundwork for a hosted version and are not published.
+
 ```
 whyanchor/
+├── apps/
+│   ├── cli/       # the published `whyanchor` package (detailed below)
+│   ├── web/       # Next.js site and dashboard — deploys to Vercel
+│   ├── api/       # GitHub webhook receiver (hosted MCP later) — deploys to Render
+│   └── worker/    # background jobs: clone, staleness, PR checks — deploys to Render
+├── packages/
+│   ├── core/      # shared staleness engine (moved out of apps/cli in a later sprint)
+│   └── db/        # database schema and migrations
+└── .github/workflows/ci.yml
+```
+
+Inside `apps/cli`:
+
+```
+apps/cli/
 ├── src/
 │   ├── cli.ts                    # command-line entry point
 │   ├── commands/                 # one file per command
@@ -683,7 +701,12 @@ whyanchor/
 │   │   └── api/graph/route.ts     # reads .memory/entries/ via ../dist/core/*, returns JSON
 │   ├── components/                # GraphView (the force graph), Sidebar, DetailPanel
 │   └── lib/                       # client-side types + node/edge colors
-├── tests/                        # 163 tests, including real git repos and a real MCP client
+└── tests/                        # 163 tests, including real git repos and a real MCP client
+```
+
+At the repo root, alongside `apps/` and `packages/`:
+
+```
 ├── .memory/entries/              # this project's own notes about itself
 ├── .claude/CLAUDE.md             # generated — agent instructions + notes
 ├── AGENTS.md                     # generated — same, for Codex/Cursor/Copilot/…
@@ -696,22 +719,28 @@ whyanchor/
 The generated files are checked in on purpose. Anyone who clones this repo gets the memory
 tooling working immediately, with no setup.
 
-`graph-app/` is the opposite: its `.next/` build output is gitignored (like `dist/`) but still
-needs to ship in the npm package, since `viewgraph` runs the prebuilt app, not `next dev`. `npm run
-build` runs `tsc` and then `next build graph-app` in that order — the app's API route imports the
-already-compiled `../dist/core/*.js`, not `../src`, so `dist/` has to exist first. An `.npmignore`
-(which replaces `.gitignore` for packing purposes) makes sure the gitignored `.next` output still
-gets published.
+`apps/cli/graph-app/` is the opposite: its `.next/` build output is gitignored (like `dist/`) but
+still needs to ship in the npm package, since `viewgraph` runs the prebuilt app, not `next dev`.
+`npm run build` in `apps/cli` runs `tsc` and then `next build graph-app` in that order — the app's
+API route imports the already-compiled `dist/core/*.js`, not `src`, so `dist/` has to exist first.
+An `apps/cli/.npmignore` (which replaces `.gitignore` for packing purposes) makes sure the
+gitignored `.next` output still gets published. The build also copies the root `README.md` and
+`LICENSE` into `apps/cli` (gitignored copies) because `npm publish` only packs files found in the
+package directory.
+
+Publishing is unchanged apart from the workspace flag: `npm publish -w whyanchor --ignore-scripts`
+from the repo root.
 
 ---
 
 ## Development
 
 ```bash
-npm run build       # compile TypeScript into dist/, then build the graph-app Next.js UI
+npm install         # once, at the repo root — installs every workspace
+npm run build       # build every workspace (the CLI: compile to dist/, then the graph-app UI)
 npm run typecheck   # type check without emitting
-npm test            # run the test suite
-npm run dev -- list # run a command straight from source, no build
+npm test            # run the test suite of every workspace
+npm run dev -- list # run a CLI command straight from source, no build
 ```
 
 **163 tests across 13 files.** The staleness tests are not mocked — they create real temporary git

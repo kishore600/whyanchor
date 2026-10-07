@@ -4,5 +4,19 @@ dist/
 error-log.json
 .claude/worktrees/
 .claude/.mcp.json
-graph-app/.next/
-graph-app/next-env.d.ts
+
+# env files and keys: never commit these (the GitHub App private key is a .pem)
+.env
+.env.*
+!.env.example
+*.pem
+
+# Next.js build output (apps/web, and the viewgraph UI shipped inside the CLI)
+.next/
+next-env.d.ts
+.vercel/
+*.tsbuildinfo
+
+# README and LICENSE are copied into apps/cli at build time so `npm publish` includes them
+apps/cli/README.md
+apps/cli/LICENSE

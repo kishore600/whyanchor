@@ -7,20 +7,20 @@ tags:
   - setup
   - mcp
 refs:
-  - src/generators/agentConfig.ts#isEphemeralInstall
-  - src/generators/agentConfig.ts#npxServerCommand
-  - src/commands/connect.ts#runConnect
+  - apps/cli/src/generators/agentConfig.ts#isEphemeralInstall
+  - apps/cli/src/generators/agentConfig.ts#npxServerCommand
+  - apps/cli/src/commands/connect.ts#runConnect
 supersedes: null
 status: active
 commit: 1f8760cfc0d4426917f6448c04284c6b0cd837d9
 fingerprint:
-  src/generators/agentConfig.ts#isEphemeralInstall:
+  apps/cli/src/generators/agentConfig.ts#isEphemeralInstall:
     hash: a22fe7e817764cdc
     kind: symbol
-  src/generators/agentConfig.ts#npxServerCommand:
+  apps/cli/src/generators/agentConfig.ts#npxServerCommand:
     hash: c846a5b03cf7a864
     kind: symbol
-  src/commands/connect.ts#runConnect:
+  apps/cli/src/commands/connect.ts#runConnect:
     hash: 941cdd4ee1383c49
     kind: symbol
 last_checked: null

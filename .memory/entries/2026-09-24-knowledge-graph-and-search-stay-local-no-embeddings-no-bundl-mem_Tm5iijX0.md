@@ -10,24 +10,24 @@ tags:
   - mcp
   - visualization
 refs:
-  - src/core/graph.ts
-  - src/core/search.ts
-  - src/generators/graphHtml.ts
-  - src/mcp/server.ts
+  - apps/cli/src/core/graph.ts
+  - apps/cli/src/core/search.ts
+  - apps/cli/src/generators/graphHtml.ts
+  - apps/cli/src/mcp/server.ts
 supersedes: null
 status: superseded
 commit: 07357e98d956e783b74a73a524bedeae631ff1e8
 fingerprint:
-  src/core/graph.ts:
+  apps/cli/src/core/graph.ts:
     hash: eee211507321a869
     kind: file
-  src/core/search.ts:
+  apps/cli/src/core/search.ts:
     hash: 845de578617dc17b
     kind: file
-  src/generators/graphHtml.ts:
+  apps/cli/src/generators/graphHtml.ts:
     hash: 3ebf9ed9605d0058
     kind: file
-  src/mcp/server.ts:
+  apps/cli/src/mcp/server.ts:
     hash: 108918aeceb15c1a
     kind: file
 last_checked: null

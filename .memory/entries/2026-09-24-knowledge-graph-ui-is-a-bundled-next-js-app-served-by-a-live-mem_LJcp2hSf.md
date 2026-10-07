@@ -10,29 +10,29 @@ tags:
   - mcp
   - visualization
 refs:
-  - src/commands/viewgraph.ts
-  - graph-app/app/api/graph/route.ts
-  - graph-app/components/GraphView.tsx
-  - graph-app/next.config.mjs
-  - package.json
+  - apps/cli/src/commands/viewgraph.ts
+  - apps/cli/graph-app/app/api/graph/route.ts
+  - apps/cli/graph-app/components/GraphView.tsx
+  - apps/cli/graph-app/next.config.mjs
+  - apps/cli/package.json
 supersedes: mem_Tm5iijX0
 status: active
 commit: 07357e98d956e783b74a73a524bedeae631ff1e8
 fingerprint:
-  src/commands/viewgraph.ts:
+  apps/cli/src/commands/viewgraph.ts:
     hash: fb8843ef6ba98447
     kind: file
-  graph-app/app/api/graph/route.ts:
+  apps/cli/graph-app/app/api/graph/route.ts:
     hash: e508dbda0691665d
     kind: file
-  graph-app/components/GraphView.tsx:
+  apps/cli/graph-app/components/GraphView.tsx:
     hash: 352999e95ccbb514
     kind: file
-  graph-app/next.config.mjs:
-    hash: e692bf58456786ce
+  apps/cli/graph-app/next.config.mjs:
+    hash: 23e6f454f810be86
     kind: file
-  package.json:
-    hash: 704f230fca1fc42e
+  apps/cli/package.json:
+    hash: 3c46dcbdb598d595
     kind: file
 last_checked: null
 ---

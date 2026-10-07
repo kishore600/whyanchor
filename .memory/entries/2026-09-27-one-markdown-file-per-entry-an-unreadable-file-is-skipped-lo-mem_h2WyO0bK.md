@@ -7,16 +7,16 @@ tags:
   - architecture
   - storage
 refs:
-  - src/core/store.ts#loadEntries
-  - src/core/schema.ts#MemoryFrontmatterSchema
+  - apps/cli/src/core/store.ts#loadEntries
+  - apps/cli/src/core/schema.ts#MemoryFrontmatterSchema
 supersedes: mem_6x2g7wNE
 status: active
 commit: 1f8760cfc0d4426917f6448c04284c6b0cd837d9
 fingerprint:
-  src/core/store.ts#loadEntries:
+  apps/cli/src/core/store.ts#loadEntries:
     hash: 6d5f83609fe7ac50
     kind: symbol
-  src/core/schema.ts#MemoryFrontmatterSchema:
+  apps/cli/src/core/schema.ts#MemoryFrontmatterSchema:
     hash: f13d52b0baf45f53
     kind: symbol
 last_checked: null

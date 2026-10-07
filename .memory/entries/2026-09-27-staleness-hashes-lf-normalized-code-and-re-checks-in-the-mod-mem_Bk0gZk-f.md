@@ -9,20 +9,20 @@ tags:
   - architecture
   - staleness
 refs:
-  - src/core/staleness.ts#checkRef
-  - src/core/fingerprint.ts#fingerprintContent
-  - src/core/legacyFingerprint.ts#legacySymbolHashes
+  - apps/cli/src/core/staleness.ts#checkRef
+  - apps/cli/src/core/fingerprint.ts#fingerprintContent
+  - apps/cli/src/core/legacyFingerprint.ts#legacySymbolHashes
 supersedes: mem_0_1s55r4
 status: active
 commit: 1f8760cfc0d4426917f6448c04284c6b0cd837d9
 fingerprint:
-  src/core/staleness.ts#checkRef:
+  apps/cli/src/core/staleness.ts#checkRef:
     hash: 33b937d098959537
     kind: symbol
-  src/core/fingerprint.ts#fingerprintContent:
+  apps/cli/src/core/fingerprint.ts#fingerprintContent:
     hash: 11bbdd0d47fef977
     kind: symbol
-  src/core/legacyFingerprint.ts#legacySymbolHashes:
+  apps/cli/src/core/legacyFingerprint.ts#legacySymbolHashes:
     hash: c2da89a1f5df5da2
     kind: symbol
 last_checked: null

@@ -1,0 +1,10 @@
+.git
+**/node_modules
+**/dist
+**/.next
+**/.env
+**/.env.*
+*.pem
+apps/cli/graph-app
+docs
+.memory

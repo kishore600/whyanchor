@@ -7,12 +7,12 @@ tags:
   - architecture
   - generation
 refs:
-  - src/generators/agentsFile.ts#upsertMemorySection
+  - apps/cli/src/generators/agentsFile.ts#upsertMemorySection
 supersedes: mem_24Cj25y5
 status: superseded
 commit: 67a6efe5f752993bfe0c44c5cd9d2f1f47555065
 fingerprint:
-  src/generators/agentsFile.ts#upsertMemorySection:
+  apps/cli/src/generators/agentsFile.ts#upsertMemorySection:
     hash: 34dfb26289ea40d4
     kind: symbol
 last_checked: null

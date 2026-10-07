@@ -1,0 +1,71 @@
+# Render Blueprint for the whyanchor backend: an API web service and a background worker.
+#
+# IMPORTANT: only apply this as a Blueprint (Render dashboard -> New -> Blueprint) for a NEW
+# environment, e.g. production. If you already created whyanchor-api / whyanchor-worker by hand,
+# applying it would create duplicates; instead copy the settings below into the existing services.
+# The web app is NOT here: it deploys to Vercel (Root Directory = apps/web).
+#
+# Secrets are declared with `sync: false`, so their values are never in git; Render asks for them
+# in the dashboard. The names match .env.example.
+
+services:
+  - type: web
+    name: whyanchor-api
+    runtime: node
+    plan: starter # a free web service sleeps when idle and would drop GitHub webhooks
+    # region: pick the same region as your Supabase project
+    healthCheckPath: /healthz
+    autoDeploy: true
+    # Only rebuild when something this service depends on changed.
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/**
+        - package.json
+        - package-lock.json
+        - tsconfig.base.json
+    # --include=dev: Render builds with NODE_ENV=production, which would otherwise skip tsc.
+    buildCommand: npm ci --include=dev -w @whyanchor/api && npm run build -w @whyanchor/api
+    startCommand: node apps/api/dist/index.js
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: APP_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY_B64
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+
+  - type: worker
+    name: whyanchor-worker
+    runtime: docker
+    plan: starter # background workers have no free tier
+    # region: same region as whyanchor-api and Supabase
+    autoDeploy: true
+    dockerfilePath: ./apps/worker/Dockerfile
+    dockerContext: .
+    buildFilter:
+      paths:
+        - apps/worker/**
+        - packages/**
+        - package.json
+        - package-lock.json
+        - tsconfig.base.json
+    envVars:
+      - key: APP_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY_B64
+        sync: false
+      - key: SENTRY_DSN
+        sync: false

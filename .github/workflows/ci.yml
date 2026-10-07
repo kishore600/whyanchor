@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# A newer push to the same branch/PR makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows too: the staleness engine has had CRLF/platform-specific bugs (see .memory).
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The staleness tests walk real git history (rev-list), so they need all of it.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The tests create throwaway git repos and commit in them.
+      - name: Configure git identity
+        run: |
+          git config --global user.email "ci@whyanchor.invalid"
+          git config --global user.name "whyanchor CI"
+          git config --global init.defaultBranch main
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # Guards the published tarball: the monorepo move must not change what ships.
+      - name: Pack the CLI (dry run)
+        if: matrix.os == 'ubuntu-latest'
+        run: npm pack -w whyanchor --dry-run --ignore-scripts

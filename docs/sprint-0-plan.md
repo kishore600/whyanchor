@@ -1,4 +1,4 @@
-# whyanchor Cloud: Sprint 0 plan (Netlify + Render + Supabase)
+# whyanchor Cloud: Sprint 0 plan (Vercel + Render + Supabase)
 
 Source: the "30-Day Sprints" artifact, Sprint 0 ("Foundations and design partners", days 1-2), adapted to your stack and checked against this repo as of 2026-10-07.
 
@@ -6,13 +6,21 @@ Sprint 0 goal, unchanged: **the skeleton runs end to end on staging, and partner
 
 ---
 
+## Status (2026-10-07)
+
+Decisions made: product name **whyanchor**; web on **Vercel**; backend on **Render**; **no custom domain yet**; `demo/` removed (`ce7fba5`).
+
+Day 1, Track M (done on branch `sprint-0/foundations`, not yet pushed): line endings normalized, monorepo conversion with the published tarball unchanged, web/api/worker skeletons, CI, `render.yaml`, `.env.example`. Still yours: connect the Vercel project, confirm the Render services, and start outreach. See the chat reply for the exact steps.
+
+---
+
 ## 0. Read this first: where the artifact and your stack disagree
 
-The artifact assumes Neon/Supabase + Vercel + Fly/Railway + Inngest + Auth.js. Your stack changes five things, and the repo and the artifact disagree on a few more. Items marked **DECIDE** need your answer before Day 1 starts (the answers are collected in section 3).
+The artifact assumes Neon/Supabase + Vercel + Fly/Railway + Inngest + Auth.js. Your stack changes a few things, and the repo and the artifact disagree on a few more. Items marked **DECIDE** need your answer before Day 1 starts (the answers are collected in section 3).
 
 | # | Artifact says | Reality / recommendation |
 |---|---|---|
-| 1 | Vercel for `apps/web` | **Netlify.** Next.js (App Router, route handlers, server actions, streaming) is supported through Netlify's OpenNext adapter. Keep it to UI, auth callbacks and light server reads. Netlify functions are the wrong place for git clones, webhooks that must ack fast, or the Sprint 5 MCP endpoint. |
+| 1 | Vercel for `apps/web` | **Vercel, as in the artifact** (you chose it over Vercel). Keep it to UI, auth callbacks and light server reads. Vercel functions are the wrong place for git clones, webhooks that must ack fast, or the Sprint 5 MCP endpoint. Note: Vercel's free Hobby plan is for non-commercial use only, so plan to move to Pro before you charge in Sprint 7. |
 | 2 | Worker on Fly/Railway | **Render.** Two services: `apps/api` (web service: GitHub webhooks now, hosted MCP in Sprint 5) and `apps/worker` (background worker, Docker image with `git` installed). |
 | 3 | Inngest for jobs | **DECIDE. Recommend pg-boss on Supabase Postgres.** One less vendor, jobs live next to the data, and the worker is a plain Node process on Render. Inngest still works (it would call an endpoint on `apps/api`); it just adds an account and a public function endpoint. |
 | 4 | Auth.js + GitHub | **DECIDE. Recommend Supabase Auth (GitHub provider).** It is already in your stack and gives you cookies and sessions through `@supabase/ssr`. Row-level security (below) works with either. |
@@ -20,7 +28,7 @@ The artifact assumes Neon/Supabase + Vercel + Fly/Railway + Inngest + Auth.js. Y
 | 6 | GitHub App permissions "contents read, metadata read, pull requests write, checks write. Nothing more." | **Inconsistent with Sprints 4 and 6.** "Update (opens a PR)" and "Approve opens a PR that adds the note" need **Contents: write**. See section 5 for the decision. |
 | 7 | Install flow uses a Setup URL | **Use "Request user authorization (OAuth) during installation" instead.** With a bare Setup URL, `installation_id` is an unverified query parameter, so anyone can claim anyone's installation. The OAuth code lets you check the installation belongs to the signed-in user. GitHub disables the Setup URL field when this is on. |
 | 8 | Invite a teammate by GitHub username (Sprint 1) | There is no table for pending invites in the artifact's schema. Added in section 6. |
-| 9 | "gitignore `error-log.json`" | **Already done** (`.gitignore` line 4). Only the `demo/` changes are pending. |
+| 9 | "gitignore `error-log.json`" | **Already done** (`.gitignore` line 4). The pending `demo/` changes were resolved when `demo/` was deleted in `ce7fba5` (it still exists in history at `658865e`). |
 | 10 | Move `src/` into packages | Moving files **will make existing `.memory` refs stale** (they point at `src/core/store.ts#loadEntries` etc.) and breaks the committed `.mcp.json` (`npx tsx src/cli.ts mcp`). Handled in Day 1 below. This is a good first dogfooding test for `whyanchor check`. |
 
 Also worth knowing before you spend money:
@@ -39,14 +47,13 @@ Also worth knowing before you spend money:
 whyanchor/
 ├─ apps/
 │  ├─ cli/        existing src/, tests/, graph-app/, scripts/. Still published as `whyanchor`
-│  ├─ web/        Next.js 16, deploys to Netlify
+│  ├─ web/        Next.js 16, deploys to Vercel
 │  ├─ api/        Hono (or Fastify). Render web service: /healthz, /webhooks/github
 │  └─ worker/     pg-boss worker. Render background worker, Dockerfile with git
 ├─ packages/
 │  ├─ core/       EMPTY SHELL in Sprint 0. Sprint 1 moves src/core here
 │  └─ db/         Drizzle schema + SQL migrations + client factory
 ├─ .github/workflows/ci.yml
-├─ netlify.toml
 ├─ render.yaml    Render Blueprint (api + worker)
 ├─ tsconfig.base.json
 └─ package.json   private, "workspaces": ["apps/*", "packages/*"]
@@ -65,13 +72,13 @@ Two additions to the artifact's list: `apps/api` (you named a Render "backend AP
 |---|---|---|
 | You | Answer the **DECIDE** items (section 3, "Decisions"). Product name and GitHub owner are the blockers. | Answers in chat |
 | You | Send the outreach messages (I draft them, Appendix A). 15-20 team leads. Book calls. | Messages sent, tracker started |
-| Me | **Demo changes:** `git diff demo/` is +392/-50, mostly a README rewrite. Once you say commit or discard, I do it. | `git status` clean |
+| Me | ~~Demo changes~~ | **Resolved:** you removed `demo/` in `ce7fba5`, so there is nothing to commit. Its last committed version is at `658865e`. |
 | Me | Add `.gitattributes` (`* text=auto eol=lf`). Git currently warns that LF will become CRLF on all 5 demo files. whyanchor's staleness hashes are already LF-normalized, but your Windows checkout and Linux CI should agree. | Warning gone |
 | Me | **Monorepo:** `git mv` (keeps history) `src`, `tests`, `graph-app`, `scripts` into `apps/cli`. Keep `name: "whyanchor"`, `bin`, `files`, and the `.npmignore` working. Root `package.json` becomes private with workspaces. Add `tsconfig.base.json`. Create empty `web`, `api`, `worker`, `core`, `db` packages. | `npm ci && npm test` green; `npm pack -w whyanchor --dry-run` lists the same files as before |
 | Me | **Fix what the move breaks:** `.mcp.json` command to `npx tsx apps/cli/src/cli.ts mcp` (per memory `mem_7aLet5IZ`), the `scripts/prebuild|postbuild` paths, and Next's workspace-root warning (`turbopack.root`) for `graph-app`. Run `whyanchor check` and re-anchor stale refs. Capture one decision about the monorepo layout. | `whyanchor check` shows no new `[STALE]`/missing |
 | Me | **CI** (`.github/workflows/ci.yml`): typecheck, test, build on every PR and on push to `master`. Details below. | Green on a PR |
-| Me | `netlify.toml`, `render.yaml`, `apps/worker/Dockerfile`, `/healthz` on api, `/api/health` on web (does `select 1` against Supabase). | Files in repo, deploys succeed |
-| You | Confirm Supabase `dev` project, Netlify site and Render services exist (you said they are deployed). Connect them to the repo (auto-deploy on `master`). Paste env vars into each dashboard (section 3 lists names). | Pushing to `master` triggers all three deploys |
+| Me | `render.yaml`, `apps/worker/Dockerfile`, `/healthz` on api, `/api/health` on web (the Supabase `select 1` check is added on Day 2, once the connection strings exist). | Files in repo, deploys succeed |
+| You | Confirm Supabase `dev` project, Vercel site and Render services exist (you said they are deployed). Connect them to the repo (auto-deploy on `master`). Paste env vars into each dashboard (section 3 lists names). | Pushing to `master` triggers all three deploys |
 | You | Create Sentry account (3 projects: web, api, worker). | DSNs in env vars |
 
 CI details (`ci.yml`):
@@ -83,12 +90,12 @@ CI details (`ci.yml`):
 - Do **not** publish from CI. Keep your manual `npm publish --ignore-scripts` flow (now `-w whyanchor`).
 - After the first green run, turn on branch protection for `master` requiring the `verify` checks. I can do this through `gh api` if you approve.
 
-### Day 2: GitHub App, domain, end-to-end hello world
+### Day 2: GitHub App, end-to-end hello world
 
 | Owner | Task | Done when |
 |---|---|---|
-| You | Register the **development GitHub App** (section 4). Generate secrets. Put them in Render and Netlify env vars (never in chat or git). | App exists, installed on a sandbox repo |
-| You | Buy the domain. Point `app.` at Netlify, `api.` at Render (custom domains), apex at the landing page. | HTTPS works on all three |
+| You | Register the **development GitHub App** (section 4). Generate secrets. Put them in Render and Vercel env vars (never in chat or git). | App exists, installed on a sandbox repo |
+| You | **Skipped for now: custom domain.** Until you buy one, web is `https://<project>.vercel.app` and the API is `https://whyanchor-api.onrender.com`. Both are stable per project/service name, so the GitHub App can use them today. | Both URLs return health JSON |
 | Me | `apps/api`: `POST /webhooks/github` verifies `X-Hub-Signature-256` over the **raw body** with a constant-time compare, records `X-GitHub-Delivery` for idempotency, enqueues a job, returns 202 fast. | GitHub "Recent deliveries" shows 200 |
 | Me | `apps/worker`: pg-boss connects, takes the job, logs it. Mints a GitHub installation token (App JWT → installation token, expires in 1 h), lists `GET /installation/repositories`. Proves a blobless clone works on Render: `git clone --filter=blob:none` with `x-access-token:<token>`. Cleans up the temp dir. | Log line "cloned N files, cleaned up" |
 | Me | `apps/web`: landing page with waitlist form that writes to `public.waitlist` (rate-limited, honeypot). Sentry wired in all three apps. | Submission appears in Supabase |
@@ -109,10 +116,10 @@ CI details (`ci.yml`):
 **Tools on your machine** (check with `node -v`, `git --version`):
 - Node 22 and npm 10+. Git 2.40+ (you have 2.40.1; `--filter=blob:none` needs 2.19+).
 - Docker Desktop (to test the worker image locally). `gh` CLI (already logged in as `kishore600`).
-- CLIs: `npx supabase`, `npm i -g netlify-cli`. The Render CLI is optional; the Blueprint does the job.
+- CLIs: `npx supabase`, `npm i -g vercel` (optional). The Render CLI is optional; the Blueprint does the job.
 - For local webhook testing: a free smee.io channel (it forwards GitHub webhooks to localhost), or ngrok.
 
-**Accounts:** GitHub (an org, see below), Supabase, Netlify, Render, Sentry, a domain registrar, an Anthropic API key (needed in Sprint 6, not now).
+**Accounts:** GitHub (an org, see below), Supabase, Vercel, Render, Sentry, an Anthropic API key (needed in Sprint 6, not now).
 
 **GitHub owner.** Create a GitHub **organization** for the product now, instead of owning the App under `kishore600`. App names must be globally unique (max 34 chars) and the slug appears in the install URL, so the name decision gates the App. As I recall, GitHub Marketplace requires the listing app to be org-owned, so you would otherwise have to transfer it before Sprint 7 (verify when you list).
 
@@ -121,8 +128,8 @@ CI details (`ci.yml`):
 | Env | Web | API / worker | Database | GitHub App |
 |---|---|---|---|---|
 | local | `next dev` :3000 | `tsx` locally | Supabase `dev` | `…-dev` via smee.io |
-| staging (deploys from `master`) | Netlify site + deploy previews for PRs | Render services (staging) | Supabase `dev` project | `…-dev` pointing at staging |
-| prod (Sprint 7) | same Netlify site, production context | new Render services from the same `render.yaml` | Supabase `prod` (Pro) | production App |
+| staging (deploys from `master`) | Vercel site + deploy previews for PRs | Render services (staging) | Supabase `dev` project | `…-dev` pointing at staging |
+| prod (Sprint 7) | same Vercel site, production context | new Render services from the same `render.yaml` | Supabase `prod` (Pro) | production App |
 
 Heads-up: design partners will install the **dev** App in Sprint 3 (day 14) and the production App only exists from day 28. Either make partners reinstall at launch, or register a long-lived "staging" App with the final permission set for them. I recommend the second.
 
@@ -130,20 +137,20 @@ Heads-up: design partners will install the **dev** App in Sprint 3 (day 14) and 
 
 ## 3. What I need from you
 
-**Rule: never paste secrets (private key, client secret, webhook secret, DB passwords, service keys) into chat.** Put them straight into the Netlify/Render dashboards or a local `.env.local` (gitignored). I only need the variable **names** and non-secret IDs.
+**Rule: never paste secrets (private key, client secret, webhook secret, DB passwords, service keys) into chat.** Put them straight into the Vercel/Render dashboards or a local `.env.local` (gitignored). I only need the variable **names** and non-secret IDs.
 
 ### Decisions (blocking Day 1)
 
 | # | Decision | My recommendation |
 |---|---|---|
-| 1 | Product/cloud name + domain | Pick today; the GitHub App slug depends on it |
+| 1 | Product/cloud name + domain | **Decided:** name `whyanchor`; no domain yet (use `*.vercel.app` and `*.onrender.com`) |
 | 2 | GitHub owner for the App | New org |
-| 3 | `demo/` pending changes: commit or discard | Commit (it's the README rewrite + fixes from your last session) |
+| 3 | `demo/` pending changes | **Resolved:** removed in `ce7fba5` |
 | 4 | Auth: Supabase Auth vs Auth.js | Supabase Auth |
 | 5 | Jobs: pg-boss vs Inngest | pg-boss |
 | 6 | API framework for `apps/api` | Hono |
 | 7 | Contents: write timing (section 5) | Request write on the staging/prod Apps from the start |
-| 8 | Regions (Render, Supabase, Netlify functions) | One region, same for Render and Supabase. Tell me yours |
+| 8 | Regions (Render, Supabase, Vercel functions) | One region, same for Render and Supabase. Tell me yours |
 | 9 | Render plan | Paid Starter for api + worker |
 | 10 | One Render service or two (api + worker) | Two |
 
@@ -153,21 +160,21 @@ Heads-up: design partners will install the **dev** App in Sprint 3 (day 14) and 
 |---|---|---|
 | Repo admin on `kishore600/whyanchor` | Workflows, branch protection | I already see `gh` logged in; approve when I run `gh api` |
 | Supabase **project ref** (dev, later prod) | `supabase link`, migrations | Run `npx supabase login` yourself, then tell me the project ref (it is in the URL, not a secret) |
-| Netlify **site name** | `netlify.toml`, linking | `netlify login`, then `netlify link` |
+| Vercel **project** (Root Directory `apps/web`) | Auto-deploys, env vars | Import the repo at vercel.com/new (steps in the chat reply); no CLI needed |
 | Render: connect repo, then **New → Blueprint** using my `render.yaml` | Creates api + worker | You click; I write the file |
-| Sandbox repo | Safe target for webhook/clone tests | Create `<owner>/whyanchor-sandbox`, push `apps/cli/demo/fixture` into it |
+| Sandbox repo | Safe target for webhook/clone tests | Create `<owner>/whyanchor-sandbox`, seed it from the fixture in history: `git archive 658865e demo/fixture` (the folder is gone from HEAD) |
 
 ### Environment variables (names only)
 
-| Variable | Netlify web | Render api | Render worker | Where the value comes from |
+| Variable | Vercel web | Render api | Render worker | Where the value comes from |
 |---|:-:|:-:|:-:|---|
-| `APP_URL` | ✓ | ✓ | ✓ | Your domain |
+| `APP_URL` | ✓ | ✓ | ✓ | The Vercel production URL, e.g. `https://whyanchor.vercel.app` |
 | `DATABASE_URL_POOLED` | ✓ | | | Supabase → Connect → transaction pooler (6543), role `app_rls` |
 | `DATABASE_URL` | | ✓ | ✓ | Supabase **session** pooler (5432). See note below |
 | `NEXT_PUBLIC_SUPABASE_URL` | ✓ | | | Supabase → Settings → API |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (formerly "anon") | ✓ | | | same |
 | `GITHUB_APP_ID` | | ✓ | ✓ | App settings page |
-| `GITHUB_APP_PRIVATE_KEY_B64` | | ✓ | ✓ | `.pem` file, base64-encoded (avoids multiline env issues). **Not on Netlify** |
+| `GITHUB_APP_PRIVATE_KEY_B64` | | ✓ | ✓ | `.pem` file, base64-encoded (avoids multiline env issues). **Not on Vercel** |
 | `GITHUB_WEBHOOK_SECRET` | | ✓ | | You generate it: `openssl rand -hex 32` |
 | `GITHUB_APP_CLIENT_ID` / `GITHUB_APP_CLIENT_SECRET` | ✓ | | | App settings (for the install-callback code exchange) |
 | `NEXT_PUBLIC_GITHUB_APP_SLUG` | ✓ | | | App name slug |
@@ -175,9 +182,9 @@ Heads-up: design partners will install the **dev** App in Sprint 3 (day 14) and 
 | `ANTHROPIC_API_KEY` | | | ✓ (Sprint 6) | Not now |
 | `WORK_DIR` (default `/tmp/whyanchor`) | | | ✓ | Fixed value |
 
-The private key lives **only on Render**, since it can mint tokens for every installation. Netlify only ever holds the OAuth client secret.
+The private key lives **only on Render**, since it can mint tokens for every installation. Vercel only ever holds the OAuth client secret.
 
-Supabase connection note: the direct connection (port 5432 on `db.<ref>.supabase.co`) is IPv6-only unless you buy the IPv4 add-on. Render may fail to reach it (`ENETUNREACH`), so use the **session-mode pooler** string for api, worker and migrations. Netlify functions use the **transaction-mode** string (port 6543) with the pool size set to 1 and prepared statements off.
+Supabase connection note: the direct connection (port 5432 on `db.<ref>.supabase.co`) is IPv6-only unless you buy the IPv4 add-on. Render may fail to reach it (`ENETUNREACH`), so use the **session-mode pooler** string for api, worker and migrations. Vercel functions use the **transaction-mode** string (port 6543) with the pool size set to 1 and prepared statements off.
 
 ### Not mine to do
 
@@ -215,7 +222,7 @@ Do this once for the dev/staging App. The production App repeats it in Sprint 7 
 10. **Where can this GitHub App be installed?** Choose **Any account**. Design partners are other accounts, so "Only on this account" would block them.
 11. **Create GitHub App.** On the next page:
     - Copy the **App ID** and **Client ID** (not secrets).
-    - **Generate a new client secret**, paste into Netlify only.
+    - **Generate a new client secret**, paste into Vercel only.
     - **Generate a private key.** A `.pem` downloads once; base64-encode it and paste into Render as `GITHUB_APP_PRIVATE_KEY_B64`. Delete the local file or keep it in a password manager.
 12. **Install it** on `whyanchor-sandbox` only (not "All repositories").
 13. **Smoke tests:**
@@ -268,7 +275,7 @@ Adding event subscriptions inside the permissions you already have does not trig
 
 | | Purpose | Settings |
 |---|---|---|
-| **GitHub OAuth App** (sign-in) | Log in to the dashboard | *Developer settings → OAuth Apps → New.* Homepage = web URL. Authorization callback URL = `https://<supabase-ref>.supabase.co/auth/v1/callback`. Paste Client ID/secret into **Supabase → Authentication → Providers → GitHub**. Scopes: `read:user`, `user:email`. In Supabase → Authentication → URL Configuration, set **Site URL** to the staging web URL and add redirect URLs for `http://localhost:3000/**` and your Netlify deploy previews |
+| **GitHub OAuth App** (sign-in) | Log in to the dashboard | *Developer settings → OAuth Apps → New.* Homepage = web URL. Authorization callback URL = `https://<supabase-ref>.supabase.co/auth/v1/callback`. Paste Client ID/secret into **Supabase → Authentication → Providers → GitHub**. Scopes: `read:user`, `user:email`. In Supabase → Authentication → URL Configuration, set **Site URL** to the staging web URL and add redirect URLs for `http://localhost:3000/**` and your Vercel preview URLs (`https://*-<team-slug>.vercel.app/**`) |
 | **GitHub App user authorization** (install) | Proves who installed; lists their installations to validate `installation_id` | Configured in step 5 above. Callback receives `code`, `installation_id`, `setup_action`. Exchange the code server-side, call `GET /user/installations`, and link only if the `installation_id` is in that list |
 
 Why a separate OAuth App for sign-in instead of reusing the GitHub App's client: GitHub App user tokens ignore scopes and need an extra "Email addresses" account permission to read email, and Supabase's provider is built around OAuth Apps. Two login screens (sign-in, then install) is a small price.
@@ -400,7 +407,7 @@ flowchart LR
     APP[GitHub App<br/>webhooks, installation tokens]
     REPO[(Customer repos)]
   end
-  subgraph NL[Netlify]
+  subgraph NL[Vercel]
     WEB[apps/web Next.js<br/>landing, dashboard, auth callbacks]
   end
   subgraph RD[Render]
@@ -427,23 +434,23 @@ flowchart LR
 
 | Piece | Runs on | Reason |
 |---|---|---|
-| UI, auth callbacks, install callback, reads | **Netlify** (`apps/web`) | Static + SSR is what Netlify is for. Reads go straight to Postgres as `app_rls`, one fewer hop than going through the API |
-| Webhook receiver, hosted MCP | **Render web service** (`apps/api`) | Must ack in seconds and stay always-on; MCP over streamable HTTP wants long-lived connections that Netlify functions don't give you |
-| Git clone, staleness, PR diff, Claude calls | **Render background worker** (`apps/worker`, Docker) | Needs the `git` binary, minutes of runtime, and a disk. Netlify functions can't. Native Node runtime may lack git, so use a Dockerfile (`node:22-slim` + `apt-get install git`) |
+| UI, auth callbacks, install callback, reads | **Vercel** (`apps/web`) | Static + SSR is what Vercel is for. Reads go straight to Postgres as `app_rls`, one fewer hop than going through the API |
+| Webhook receiver, hosted MCP | **Render web service** (`apps/api`) | Must ack in seconds and stay always-on; MCP over streamable HTTP wants long-lived connections that Vercel functions don't give you |
+| Git clone, staleness, PR diff, Claude calls | **Render background worker** (`apps/worker`, Docker) | Needs the `git` binary, minutes of runtime, and a disk. Vercel functions can't. Native Node runtime may lack git, so use a Dockerfile (`node:22-slim` + `apt-get install git`) |
 | Database, queue, auth | **Supabase** | Single store for app data, `pgboss` jobs, and users |
 | Jobs | **pg-boss** in Supabase | `web` enqueues by writing to the queue directly, so `web` never calls `api` over HTTP |
 
 Design rules:
-- **Private key only on Render.** Netlify holds only the OAuth client secret.
-- **Two connection strings by caller:** Netlify uses the transaction pooler with `prepare: false` and pool size 1; Render uses the session pooler (or direct if IPv6 works).
+- **Private key only on Render.** Vercel holds only the OAuth client secret.
+- **Two connection strings by caller:** Vercel uses the transaction pooler with `prepare: false` and pool size 1; Render uses the session pooler (or direct if IPv6 works).
 - **Worker disk:** ephemeral. `mkdtemp` per job, `rm -rf` in a `finally`, store only notes and hashes (the artifact's own rule). Skip the persistent clone cache for now; blobless clones are cheap, and a persistent disk pins you to one worker instance.
-- **Domains:** apex and `app.` on Netlify, `api.` on Render. The webhook URL and the MCP URL are the stable public contract, so give them the custom domain from the start; changing the GitHub App webhook URL later is a manual dashboard edit per App.
+- **No custom domain yet.** Web is `<project>.vercel.app`, API is `<service>.onrender.com`. Both stay stable, so the GitHub App's URLs are safe to set now. If you add a domain later, update the App's webhook and callback URLs (one dashboard edit per App); do it before design partners install, so their installs never point at a URL that changes.
 - **Observability:** Sentry in all three apps; a free uptime monitor on `/healthz` and `/api/health`; Render logs for the worker. Never log tokens, webhook bodies with private-repo content, or `Authorization` headers.
-- **Cost shape** (verify current prices): Render Starter for api and worker, Supabase free until staging needs to stay awake and prod needs backups (then Pro), Netlify free. Combine api and worker into one Render service only if cost matters more than isolation.
+- **Cost shape** (verify current prices): Render Starter for api and worker, Supabase free until staging needs to stay awake and prod needs backups (then Pro), Vercel Hobby is free but non-commercial only, so move to Pro before you charge in Sprint 7. Combine api and worker into one Render service only if cost matters more than isolation.
 
 ### Config files I'll add
 
-- `netlify.toml`: base directory, `npm ci` at the workspace root, build command `npm run build -w @whyanchor/web`, plus `NETLIFY_NEXT_SKEW_PROTECTION=true` if you want zero-downtime deploys.
+- **Vercel project settings** (no config file needed): Framework Next.js, **Root Directory `apps/web`**, "Include source files outside of the Root Directory" on (the default), install and build commands left at their defaults.
 - `render.yaml`: `whyanchor-api` (web, health check `/healthz`) and `whyanchor-worker` (worker, Docker), env var **names** declared with `sync: false` so values stay in the dashboard.
 - `apps/worker/Dockerfile`.
 

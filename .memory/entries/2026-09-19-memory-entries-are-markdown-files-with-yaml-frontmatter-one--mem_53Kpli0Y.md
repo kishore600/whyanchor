@@ -7,12 +7,12 @@ tags:
   - architecture
   - storage
 refs:
-  - src/core/schema.ts#MemoryFrontmatterSchema
+  - apps/cli/src/core/schema.ts#MemoryFrontmatterSchema
 supersedes: null
 status: superseded
 commit: da746d6bf843c3e6742adf61efaa0c3c50af7c0f
 fingerprint:
-  src/core/schema.ts#MemoryFrontmatterSchema:
+  apps/cli/src/core/schema.ts#MemoryFrontmatterSchema:
     hash: af7e849722501787
     kind: symbol
 last_checked: null

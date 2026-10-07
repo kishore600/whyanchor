@@ -7,12 +7,12 @@ tags:
   - architecture
   - generation
 refs:
-  - src/generators/agentsFile.ts#upsertMarkedSection
+  - apps/cli/src/generators/agentsFile.ts#upsertMarkedSection
 supersedes: mem_JzWAzwRj
 status: superseded
 commit: 643e17d9f68de69ca99a8990b634793c769a5801
 fingerprint:
-  src/generators/agentsFile.ts#upsertMarkedSection:
+  apps/cli/src/generators/agentsFile.ts#upsertMarkedSection:
     hash: bf35230544fc063f
     kind: symbol
 last_checked: null

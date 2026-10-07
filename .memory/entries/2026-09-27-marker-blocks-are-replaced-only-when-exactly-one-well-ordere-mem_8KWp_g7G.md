@@ -7,16 +7,16 @@ tags:
   - architecture
   - generation
 refs:
-  - src/generators/agentsFile.ts#upsertMarkedSection
-  - src/generators/agentsFile.ts#renderMemorySection
+  - apps/cli/src/generators/agentsFile.ts#upsertMarkedSection
+  - apps/cli/src/generators/agentsFile.ts#renderMemorySection
 supersedes: mem_Q3SM2Ht6
 status: active
 commit: 1f8760cfc0d4426917f6448c04284c6b0cd837d9
 fingerprint:
-  src/generators/agentsFile.ts#upsertMarkedSection:
+  apps/cli/src/generators/agentsFile.ts#upsertMarkedSection:
     hash: a43b3e6c7798f9d0
     kind: symbol
-  src/generators/agentsFile.ts#renderMemorySection:
+  apps/cli/src/generators/agentsFile.ts#renderMemorySection:
     hash: ab9ace35a053e12e
     kind: symbol
 last_checked: null
